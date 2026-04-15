@@ -11,5 +11,5 @@ const schoolRouter = require("./routes/school");
 app.use("/", schoolRouter);
 
 app.listen(PORT, () => {
-  console.log(`School API running on http://localhost:${PORT}`);
+  console.log(`School API running on http://134.185.100.53:${PORT}`);
 });
