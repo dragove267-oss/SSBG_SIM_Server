@@ -1,0 +1,31 @@
+name: Deploy to Oracle Cloud
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: SSH Deploy
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USER }}
+        key: ${{ secrets.SERVER_KEY }}
+        script: |
+          cd ~/SSBG_SIM_Server
+          git pull origin main
+          
+          # Install dependencies
+          cd game-server && npm install && cd ..
+          cd school-server && npm install && cd ..
+          
+          # Restart using PM2
+          pm2 reload ecosystem.config.js || pm2 start ecosystem.config.js
+          pm2 save

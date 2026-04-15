@@ -176,5 +176,3 @@ module.exports = {
   getUserItems,
   getSpendLog
 };
-
-module.exports = { getOrCreateUser, applySchoolReward, spendCurrency };
