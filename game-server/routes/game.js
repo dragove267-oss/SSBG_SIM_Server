@@ -187,8 +187,8 @@ router.post("/daily-reset", async (req, res) => {
 
     // 학교서버에서 최신 데이터 가져오기
     const axios = require("axios");
-    const attendanceRes = await axios.get(`http://localhost:4000/attendance?userId=${userId}`);
-    const assignmentRes = await axios.get(`http://localhost:4000/assignment?userId=${userId}`);
+    const attendanceRes = await axios.get(`http://134.185.100.53:4000/...`);
+    const assignmentRes = await axios.get(`http://134.185.100.53:4000/...`);
 
     const attendanceCount = attendanceRes.data.attendance.filter(a => a.status === "출석").length;
     const assignmentCount = assignmentRes.data.assignment.filter(a => a.status === "제출").length;

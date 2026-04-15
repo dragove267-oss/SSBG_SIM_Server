@@ -11,5 +11,5 @@ const gameRouter = require("./routes/game");
 app.use("/api", gameRouter);
 
 app.listen(PORT, () => {
-  console.log(`Game API running on http://localhost:${PORT}`);
+  console.log(`Game API running on http://134.185.100.53:${PORT}`);
 });
