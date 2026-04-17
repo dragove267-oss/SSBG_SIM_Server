@@ -101,6 +101,30 @@ function spendCurrency(userId, currencyType, amount) {
   };
 }
 
+function gainCurrency(userId, currencyType, amount) {
+    // 허용된 재화 타입 검사
+    const validTypes = ["academicCurrency", "extraCurrency", "idleCurrency", "exp"];
+    if (!validTypes.includes(currencyType)) {
+        return { success: false, message: "Invalid currency type" };
+    }
+
+    const user = getOrCreateUser(userId);
+
+    // SQL 실행
+    db.prepare(`
+    UPDATE users
+    SET ${currencyType} = ${currencyType} + ?, 
+        updatedAt = datetime('now')
+    WHERE userId = ?
+  `).run(amount, userId);
+
+    // 최신 정보 반환
+    return {
+        success: true,
+        current: db.prepare("SELECT * FROM users WHERE userId = ?").get(userId)
+    };
+}
+
 //아이템 구매
 function purchaseItem(userId, itemId) {
   const user = getOrCreateUser(userId);
@@ -171,7 +195,8 @@ function getSpendLog(userId) {
 module.exports = { 
   getOrCreateUser, 
   applySchoolReward, 
-  spendCurrency,
+    spendCurrency,
+    gainCurrency,
   purchaseItem,
   getUserItems,
   getSpendLog

@@ -96,6 +96,23 @@ router.post("/spend-currency", (req, res) => {
   }
 });
 
+// 3.5. 재화 획득 요청 
+router.post("/currency/gain", (req, res) => {
+    const { userId, currencyType, amount } = req.body;
+
+    // 필수 데이터가 누락되었는지 확인
+    if (!userId || !currencyType || amount == null) {
+        return res.status(400).json({ success: false, error: "userId, currencyType, amount required" });
+    }
+
+    try {
+        const result = userService.gainCurrency(userId, currencyType, amount);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // 4. 유저 상태 조회
 router.get("/user/:userId", (req, res) => {
   const { userId } = req.params;
