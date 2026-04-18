@@ -1,6 +1,6 @@
 const axios = require("axios");
 
-const SCHOOL_API = "http://134.185.100.53:4000";
+const SCHOOL_API = "http://localhost:4000";
 
 // 출석 가져오기
 async function getAttendance(userId) {
