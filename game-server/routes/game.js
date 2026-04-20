@@ -71,8 +71,10 @@ router.post("/login", (req, res) => {
 
     res.json({
       success: true,
-      user: user,
-      delta: delta,
+      user: user,   // 기존 웹/대시보드용
+      Data: user,   // 언리얼 블루프린트용
+      delta: delta, // 기존 웹용
+      Delta: delta, // 언리얼 블루프린트용
       hasChange: hasChange
     });
 
