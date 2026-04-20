@@ -17,6 +17,15 @@ module.exports = {
         NODE_ENV: "production",
         PORT: 4000
       }
+    },
+    {
+      name: "admin-server",
+      script: "./admin-server/app.js",
+      watch: false,
+      env: {
+        NODE_ENV: "production",
+        PORT: 5000
+      }
     }
   ]
 };

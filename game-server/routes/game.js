@@ -294,4 +294,14 @@ router.post("/admin/item", (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// 7. [Admin] 유저 리스트 조회
+router.get("/admin/users", (req, res) => {
+  try {
+    const users = db.prepare("SELECT * FROM users ORDER BY updatedAt DESC").all();
+    res.json({ success: true, users });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
