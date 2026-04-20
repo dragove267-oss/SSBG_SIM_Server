@@ -55,10 +55,10 @@
             <!-- 유저 수정 섹션 -->
             <div class="col-md-6">
                 <div class="card p-4 mb-4">
-                    <h5 class="card-title mb-3">🛠 유저 데이터 수정</h5>
+                    <h5 class="card-title mb-3">🛠 유저 데이터 수정 <span id="selected-user-badge" class="badge bg-primary d-none">선택됨</span></h5>
                     <div class="mb-3">
-                        <label class="form-label">User ID</label>
-                        <input type="text" id="target-user-id" class="form-control" placeholder="수정할 유저 ID 선택">
+                        <label class="form-label text-muted small">User ID (목록에서 선택하세요)</label>
+                        <input type="text" id="target-user-id" class="form-control bg-light" readonly placeholder="위 목록에서 유저를 클릭하세요">
                     </div>
                     <div class="row">
                         <div class="col-6 mb-3">
@@ -88,8 +88,8 @@
                     <h5 class="card-title mb-3">⚙ 시스템 제어 (Webhook)</h5>
                     <p class="text-muted small">학교 서버의 데이터를 강제로 갱신하고 게임 서버로 푸시 이벤트를 보냅니다.</p>
                     <div class="mb-3">
-                        <label class="form-label">Target User ID (Webhook)</label>
-                        <input type="text" id="webhook-user-id" class="form-control" placeholder="웹훅 트리거 대상 유저">
+                        <label class="form-label text-muted small">Target User ID (Webhook)</label>
+                        <input type="text" id="webhook-user-id" class="form-control bg-light" readonly placeholder="선택된 유저 없음">
                     </div>
                     <button class="btn btn-warning w-100" onclick="triggerWebhook()">🔔 학교 데이터 강제 업데이트 트리거</button>
                 </div>

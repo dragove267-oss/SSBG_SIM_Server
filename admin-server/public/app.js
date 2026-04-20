@@ -47,6 +47,11 @@ function selectUser(userId, element) {
     document.getElementById("target-user-id").value = userId;
     document.getElementById("webhook-user-id").value = userId;
     
+    // 배지 표시
+    const badge = document.getElementById("selected-user-badge");
+    badge.classList.remove("d-none");
+    badge.innerText = `선택됨: ${userId}`;
+    
     // 기존 선택된 행 하이라이트 제거
     const rows = document.querySelectorAll("#user-list tr");
     rows.forEach(r => r.classList.remove("table-primary"));
