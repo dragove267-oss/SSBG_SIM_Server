@@ -1,6 +1,21 @@
+# Dependency directories
 node_modules/
+**/node_modules/
+
+# Database files
 *.db
 *.db-journal
+game-server/database/*.db
+game-server/database/*.db-journal
+
+# Environment variables
 .env
+.env.*
+
+# Editor folders
 .vscode/
+.idea/
+
+# OS specific files
 .DS_Store
+Thumbs.db

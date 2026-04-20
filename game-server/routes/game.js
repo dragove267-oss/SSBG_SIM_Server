@@ -69,12 +69,19 @@ router.post("/login", (req, res) => {
       console.log("snapshot 저장 실패:", e.message);
     }
 
+    // C++ 및 블루프린트 모두를 위한 응답 구조 (C++은 소문자 키를 파싱함)
     res.json({
       success: true,
-      user: user,   // 기존 웹/대시보드용
-      Data: user,   // 언리얼 블루프린트용
-      delta: delta, // 기존 웹용
-      Delta: delta, // 언리얼 블루프린트용
+      user: user,   // C++ UEclassAPIHandler가 사용하는 키
+      Data: {       // 블루프린트 구조체 매핑용 (내부 키는 C++ 파싱 기준인 소문자 유지)
+        academicCurrency: user.academicCurrency,
+        extraCurrency:    user.extraCurrency,
+        idleCurrency:     user.idleCurrency,
+        exp:              user.exp,
+        userId:           user.userId
+      },
+      delta: delta,
+      Delta: delta,
       hasChange: hasChange
     });
 

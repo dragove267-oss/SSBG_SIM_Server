@@ -20,12 +20,20 @@ jobs:
         key: ${{ secrets.SERVER_KEY }}
         script: |
           cd ~/SSBG_SIM_Server
-          git pull origin main
+          git fetch --all
+          git reset --hard origin/main
           
-          # Install dependencies
+          # Install dependencies for all servers
+          echo "Installing dependencies..."
+          npm install
+          
           cd game-server && npm install && cd ..
           cd school-server && npm install && cd ..
+          cd admin-server && npm install && cd ..
           
-          # Restart using PM2
-          pm2 reload ecosystem.config.js || pm2 start ecosystem.config.js
-          pm2 save
+          # Restart using PM2 to ensure all changes (API keys, etc.) are applied
+          echo "Restarting servers..."
+          npx pm2 restart all
+          npx pm2 save
+          
+          echo "Deployment successful!"
