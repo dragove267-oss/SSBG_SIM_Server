@@ -4,7 +4,7 @@ const axios = require("axios");
 const path = require("path");
 
 const app = express();
-const PORT = 5000;
+const PORT = 3001;
 
 app.use(cors());
 app.use(express.json());
@@ -50,6 +50,6 @@ app.post("/api/admin/school/trigger-update", async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Admin Dashboard API running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Admin Dashboard API running on http://0.0.0.0:${PORT}`);
 });
