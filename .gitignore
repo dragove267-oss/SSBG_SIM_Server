@@ -1,21 +1,25 @@
-# Dependency directories
+# [Dependencies]
+# 로컬에서 서버를 돌리지 않으므로 모듈은 절대 올라가면 안 됨
 node_modules/
 **/node_modules/
+package-lock.json
 
-# Database files
+# [Databases]
+# 모든 데이터는 서버에만 존재함
 *.db
 *.db-journal
-game-server/database/*.db
-game-server/database/*.db-journal
+**/*.db
+**/*.db-journal
 
-# Environment variables
-.env
-.env.*
-
-# Editor folders
-.vscode/
-.idea/
-
-# OS specific files
+# [Logs & Temporary files]
+logs/
+*.log
+npm-debug.log*
 .DS_Store
 Thumbs.db
+
+# [Environment & Editor]
+.env
+.env.*
+.vscode/
+.idea/
