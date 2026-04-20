@@ -122,7 +122,7 @@ router.get("/user/:userId", (req, res) => {
 
   try {
     const user = getOrCreateUser(userId);
-    res.json({ success: true, user });
+    res.json({ success: true, user: user, Data: user });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -164,7 +164,8 @@ router.post("/daily-summary", (req, res) => {
 
     res.json({
       success: true,
-      user,
+      user: user,
+      Data: user,
       time: {
         summaryAt:         now.toISOString(),
         nextResetAt:       nextReset.toISOString(),
@@ -200,7 +201,8 @@ router.post("/daily-reset", async (req, res) => {
       return res.json({
         success: false,
         message: "Already reset today",
-        user: user
+        user: user,
+        Data: user
       });
     }
 
@@ -220,7 +222,9 @@ router.post("/daily-reset", async (req, res) => {
     res.json({
       success: true,
       user: result.user,
+      Data: result.user,
       delta: result.delta,
+      Delta: result.delta,
       hasChange: result.hasChange,
       readyForDreamShop: true
     });
