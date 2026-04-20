@@ -21,7 +21,7 @@ async function loadUsers() {
             userListBody.innerHTML = "";
             data.users.forEach(user => {
                 const row = `
-                    <tr onclick="selectUser('${user.userId}')" style="cursor: pointer;">
+                    <tr onclick="selectUser('${user.userId}', this)" style="cursor: pointer;">
                         <td><strong>${user.userId}</strong></td>
                         <td><span class="badge bg-info text-dark">${user.academicCurrency}</span></td>
                         <td><span class="badge bg-secondary">${user.extraCurrency}</span></td>
@@ -29,7 +29,7 @@ async function loadUsers() {
                         <td><span class="badge bg-success">${user.exp}</span></td>
                         <td class="small text-muted">${user.updatedAt}</td>
                         <td>
-                            <button class="btn btn-sm btn-outline-primary" onclick="selectUser('${user.userId}')">수정</button>
+                            <button class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation(); selectUser('${user.userId}', this.closest('tr'))">선택</button>
                         </td>
                     </tr>
                 `;
@@ -42,14 +42,27 @@ async function loadUsers() {
 }
 
 // 2. 유저 선택 (수정 폼에 ID 입력)
-function selectUser(userId) {
+function selectUser(userId, element) {
+    // 입력창에 ID 채우기
     document.getElementById("target-user-id").value = userId;
     document.getElementById("webhook-user-id").value = userId;
     
-    // 강조 효과
+    // 기존 선택된 행 하이라이트 제거
+    const rows = document.querySelectorAll("#user-list tr");
+    rows.forEach(r => r.classList.remove("table-primary"));
+    
+    // 현재 선택된 행 하이라이트 추가
+    if (element) {
+        element.classList.add("table-primary");
+    }
+    
+    // 수정 폼으로 스크롤 이동 (필요 시)
+    document.getElementById("target-user-id").focus();
+    
+    // 시각적 피드백 (반짝임)
     const input = document.getElementById("target-user-id");
-    input.classList.add("is-valid");
-    setTimeout(() => input.classList.remove("is-valid"), 1000);
+    input.style.backgroundColor = "#e8f0fe";
+    setTimeout(() => input.style.backgroundColor = "", 500);
 }
 
 // 3. 데이터 수정 요청 (지급/차감)
