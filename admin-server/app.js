@@ -39,7 +39,22 @@ app.post("/api/admin/user/modify", async (req, res) => {
   }
 });
 
-// 3. 학교 서버 웹훅 트리거
+// 3. 유저 데이터 직접 수정 (Override)
+app.post("/api/admin/user/update", async (req, res) => {
+  const { userId, stats } = req.body;
+  
+  try {
+    const response = await axios.post("http://localhost:3000/api/admin/user/set-stats", {
+      userId,
+      stats
+    });
+    res.json(response.data);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.response?.data || err.message });
+  }
+});
+
+// 4. 학교 서버 웹훅 트리거
 app.post("/api/admin/school/trigger-update", async (req, res) => {
   const { userId } = req.body;
   try {

@@ -52,57 +52,70 @@
         </div>
 
         <div class="row">
-            <!-- 유저 수정 섹션 -->
-            <div class="col-md-6">
+            <!-- 유저 상세 편집 섹션 (Cell 방식) -->
+            <div class="col-md-7">
                 <div class="card p-4 mb-4">
-                    <h5 class="card-title mb-3">🛠 유저 데이터 수정 <span id="selected-user-badge" class="badge bg-primary d-none">선택됨</span></h5>
+                    <h5 class="card-title mb-3">📝 유저 상세 데이터 편집 <span id="selected-user-badge" class="badge bg-primary d-none">선택됨</span></h5>
+                    
                     <div class="mb-3">
                         <label class="form-label text-muted small">대상 유저 선택</label>
                         <div class="input-group">
                             <select id="user-select-dropdown" class="form-select">
                                 <option value="" disabled selected>수정할 유저를 선택하세요</option>
-                                <!-- 유저 목록이 여기에 동적으로 추가됩니다 -->
                             </select>
                             <button class="btn btn-outline-secondary" type="button" onclick="loadUsers()">🔄 갱신</button>
                         </div>
                         <input type="hidden" id="target-user-id">
-                        <input type="hidden" id="webhook-user-id">
                     </div>
-                    <div id="selected-user-info" class="alert alert-info d-none py-2 mb-3 small">
-                        현재 선택: <strong id="display-user-id">-</strong>
-                    </div>
-                    <div class="row">
-                        <div class="col-6 mb-3">
-                            <label class="form-label">재화 종류</label>
-                            <select id="currency-type" class="form-select">
-                                <option value="academicCurrency">Academic</option>
-                                <option value="extraCurrency">Extra</option>
-                                <option value="idleCurrency">Idle</option>
-                                <option value="exp">EXP</option>
-                            </select>
+
+                    <div id="edit-table-container" class="d-none">
+                        <table class="table table-bordered align-middle mt-3">
+                            <thead class="table-light">
+                                <tr class="text-center">
+                                    <th style="width: 40%;">데이터 항목</th>
+                                    <th>현재 값 (직접 수정 가능)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td class="fw-bold text-center bg-light">Academic Currency</td>
+                                    <td><input type="number" id="edit-academic" class="form-control border-0 text-center fw-bold text-primary"></td>
+                                </tr>
+                                <tr>
+                                    <td class="fw-bold text-center bg-light">Extra Currency</td>
+                                    <td><input type="number" id="edit-extra" class="form-control border-0 text-center fw-bold text-primary"></td>
+                                </tr>
+                                <tr>
+                                    <td class="fw-bold text-center bg-light">Idle Currency</td>
+                                    <td><input type="number" id="edit-idle" class="form-control border-0 text-center fw-bold text-primary"></td>
+                                </tr>
+                                <tr>
+                                    <td class="fw-bold text-center bg-light">Experience (EXP)</td>
+                                    <td><input type="number" id="edit-exp" class="form-control border-0 text-center fw-bold text-primary"></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div class="d-grid mt-3">
+                            <button class="btn btn-success btn-lg" onclick="updateUserData()">💾 변경 사항 저장 및 적용</button>
                         </div>
-                        <div class="col-6 mb-3">
-                            <label class="form-label">금액/수량</label>
-                            <input type="number" id="modify-amount" class="form-control" value="100">
-                        </div>
+                        <p class="text-center text-muted small mt-2">※ 값을 수정한 뒤 '저장 및 적용' 버튼을 눌러야 실제 DB에 반영됩니다.</p>
                     </div>
-                    <div class="d-flex gap-2">
-                        <button class="btn btn-primary flex-fill" onclick="modifyData('gain')">➕ 지급하기</button>
-                        <button class="btn btn-danger flex-fill" onclick="modifyData('spend')">➖ 차감하기</button>
+                    
+                    <div id="no-selection-msg" class="text-center py-5 text-muted">
+                        <p>수정할 유저를 선택하면 편집 표가 나타납니다.</p>
                     </div>
                 </div>
             </div>
 
             <!-- 시스템 제어 섹션 -->
-            <div class="col-md-6">
+            <div class="col-md-5">
                 <div class="card p-4">
                     <h5 class="card-title mb-3">⚙ 시스템 제어 (Webhook)</h5>
-                    <p class="text-muted small">학교 서버의 데이터를 강제로 갱신하고 게임 서버로 푸시 이벤트를 보냅니다.</p>
                     <div class="mb-3">
-                        <label class="form-label text-muted small">Target User ID (Webhook)</label>
+                        <label class="form-label text-muted small">Target User ID</label>
                         <input type="text" id="webhook-user-id" class="form-control bg-light" readonly placeholder="선택된 유저 없음">
                     </div>
-                    <button class="btn btn-warning w-100" onclick="triggerWebhook()">🔔 학교 데이터 강제 업데이트 트리거</button>
+                    <button class="btn btn-warning w-100 py-3" onclick="triggerWebhook()">🔔 학교 데이터 강제 업데이트 트리거</button>
                 </div>
             </div>
         </div>

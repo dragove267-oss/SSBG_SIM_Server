@@ -300,4 +300,42 @@ router.get("/admin/users", (req, res) => {
   }
 });
 
+// 12. [Admin] 유저 데이터 직접 수정 (값 덮어쓰기)
+router.post("/admin/user/set-stats", (req, res) => {
+  const { userId, stats } = req.body; // stats: { academicCurrency, extraCurrency, idleCurrency, exp }
+  
+  if (!userId || !stats) {
+    return res.status(400).json({ success: false, error: "userId and stats required" });
+  }
+
+  try {
+    const stmt = db.prepare(`
+      UPDATE users 
+      SET academicCurrency = ?, 
+          extraCurrency = ?, 
+          idleCurrency = ?, 
+          exp = ?,
+          updatedAt = datetime('now')
+      WHERE userId = ?
+    `);
+    
+    const result = stmt.run(
+      stats.academicCurrency,
+      stats.extraCurrency,
+      stats.idleCurrency,
+      stats.exp,
+      userId
+    );
+
+    if (result.changes > 0) {
+      const updatedUser = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
+      res.json({ success: true, user: updatedUser });
+    } else {
+      res.status(404).json({ success: false, error: "User not found" });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
