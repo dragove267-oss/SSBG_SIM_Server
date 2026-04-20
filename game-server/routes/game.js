@@ -2,6 +2,8 @@ const express = require("express");
 const axios = require("axios");
 const router = express.Router();
 const db = require("../database/db");
+const userService = require("../services/userService");
+const { getOrCreateUser, applySchoolReward, spendCurrency, gainCurrency, purchaseItem, getUserItems, getSpendLog } = require("../services/userService");
 
 // 1. 학교서버 → 게임서버 웹훅
 router.post("/school-webhook", (req, res) => {
@@ -96,21 +98,20 @@ router.post("/spend-currency", (req, res) => {
   }
 });
 
-// 3.5. 재화 획득 요청 
+// 3.5. 재화 획득 요청
 router.post("/currency/gain", (req, res) => {
-    const { userId, currencyType, amount } = req.body;
+  const { userId, currencyType, amount } = req.body;
 
-    // 필수 데이터가 누락되었는지 확인
-    if (!userId || !currencyType || amount == null) {
-        return res.status(400).json({ success: false, error: "userId, currencyType, amount required" });
-    }
+  if (!userId || !currencyType || amount == null) {
+    return res.status(400).json({ success: false, error: "userId, currencyType, amount required" });
+  }
 
-    try {
-        const result = userService.gainCurrency(userId, currencyType, amount);
-        res.json(result);
-    } catch (err) {
-        res.status(500).json({ success: false, error: err.message });
-    }
+  try {
+    const result = userService.gainCurrency(userId, currencyType, amount);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // 4. 유저 상태 조회
@@ -181,13 +182,12 @@ router.post("/daily-summary", (req, res) => {
   }
 });
 
-// 6. 정산 완료 처리 (클라이언트 daily reset 감지 시 호출)
+// 6. 정산 완료 처리
 router.post("/daily-reset", async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "userId required" });
 
   try {
-    // 오늘 이미 리셋했는지 확인
     const alreadyReset = db.prepare(`
       SELECT * FROM daily_reset_log
       WHERE userId = ? AND date(resetAt) = date('now')
@@ -195,24 +195,22 @@ router.post("/daily-reset", async (req, res) => {
 
     if (alreadyReset) {
       const user = getOrCreateUser(userId);
-      return res.json({ 
-        success: false, 
+      return res.json({
+        success: false,
         message: "Already reset today",
         user: user
       });
     }
 
     // 학교서버에서 최신 데이터 가져오기
-    const axios = require("axios");
-    const attendanceRes = await axios.get(`http://134.185.100.53:4000/...`);
-    const assignmentRes = await axios.get(`http://134.185.100.53:4000/...`);
+    const attendanceRes = await axios.get(`http://localhost:4000/attendance?userId=${userId}`);
+    const assignmentRes = await axios.get(`http://localhost:4000/assignment?userId=${userId}`);
 
     const attendanceCount = attendanceRes.data.attendance.filter(a => a.status === "출석").length;
     const assignmentCount = assignmentRes.data.assignment.filter(a => a.status === "제출").length;
 
     const result = applySchoolReward(userId, attendanceCount, assignmentCount);
 
-    // 리셋 기록 저장
     db.prepare(
       "INSERT INTO daily_reset_log (userId, resetAt) VALUES (?, datetime('now'))"
     ).run(userId);
@@ -231,10 +229,7 @@ router.post("/daily-reset", async (req, res) => {
   }
 });
 
-
-const { getOrCreateUser, applySchoolReward, spendCurrency, purchaseItem, getUserItems, getSpendLog } = require("../services/userService");
-
-// 아이템 구매
+// 7. 아이템 구매
 router.post("/purchase", (req, res) => {
   const { userId, itemId } = req.body;
   if (!userId || !itemId) {
@@ -249,7 +244,7 @@ router.post("/purchase", (req, res) => {
   }
 });
 
-// 보유 아이템 조회
+// 8. 보유 아이템 조회
 router.get("/items/:userId", (req, res) => {
   try {
     const items = getUserItems(req.params.userId);
@@ -259,7 +254,7 @@ router.get("/items/:userId", (req, res) => {
   }
 });
 
-// 소모 이력 조회
+// 9. 소모 이력 조회
 router.get("/spend-log/:userId", (req, res) => {
   try {
     const log = getSpendLog(req.params.userId);
@@ -269,7 +264,7 @@ router.get("/spend-log/:userId", (req, res) => {
   }
 });
 
-// 아이템 등록 (관리자용 - 개발 중 테스트용)
+// 10. 아이템 등록 (관리자용)
 router.post("/admin/item", (req, res) => {
   const { itemId, name, currencyType, price, description } = req.body;
   const validTypes = ["academicCurrency", "extraCurrency", "idleCurrency", "exp"];

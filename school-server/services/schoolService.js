@@ -1,7 +1,7 @@
 const axios = require("axios");
 
-const SCHOOL_API  = "http://134.185.100.53:4000";
-const GAME_SERVER = "http://134.185.100.53:3000";
+const SCHOOL_API  = "http://localhost:4000";
+const GAME_SERVER = "http://localhost:3000";
 
 async function getAttendance(userId) {
   const res = await axios.get(
