@@ -57,8 +57,19 @@
                 <div class="card p-4 mb-4">
                     <h5 class="card-title mb-3">🛠 유저 데이터 수정 <span id="selected-user-badge" class="badge bg-primary d-none">선택됨</span></h5>
                     <div class="mb-3">
-                        <label class="form-label text-muted small">User ID (목록에서 선택하세요)</label>
-                        <input type="text" id="target-user-id" class="form-control bg-light" readonly placeholder="위 목록에서 유저를 클릭하세요">
+                        <label class="form-label text-muted small">대상 유저 선택</label>
+                        <div class="input-group">
+                            <select id="user-select-dropdown" class="form-select">
+                                <option value="" disabled selected>수정할 유저를 선택하세요</option>
+                                <!-- 유저 목록이 여기에 동적으로 추가됩니다 -->
+                            </select>
+                            <button class="btn btn-outline-secondary" type="button" onclick="loadUsers()">🔄 갱신</button>
+                        </div>
+                        <input type="hidden" id="target-user-id">
+                        <input type="hidden" id="webhook-user-id">
+                    </div>
+                    <div id="selected-user-info" class="alert alert-info d-none py-2 mb-3 small">
+                        현재 선택: <strong id="display-user-id">-</strong>
                     </div>
                     <div class="row">
                         <div class="col-6 mb-3">
