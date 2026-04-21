@@ -5,6 +5,26 @@ const db = require("../database/db");
 const userService = require("../services/userService");
 const { getOrCreateUser, applySchoolReward, spendCurrency, gainCurrency, purchaseItem, getUserItems, getSpendLog } = require("../services/userService");
 
+//리셋 시간까지 남은 초 계산 헬퍼
+function getSecondsUntilReset() {
+  const now = new Date();
+  const nextReset = new Date(now);
+  nextReset.setUTCHours(6, 0, 0, 0);
+  if (now.getUTCHours() >= 6) {
+    nextReset.setUTCDate(nextReset.getUTCDate() + 1);
+  }
+  return Math.floor((nextReset - now) / 1000);
+}
+
+//  오늘 리셋 여부 확인 헬퍼
+function isResetDoneToday(userId) {
+  const row = db.prepare(`
+    SELECT * FROM daily_reset_log
+    WHERE userId = ? AND date(resetAt) = date('now')
+  `).get(userId);
+  return !!row;
+}
+
 // 1. 학교서버 → 게임서버 웹훅
 router.post("/school-webhook", (req, res) => {
   const { userId, attendanceCount, assignmentCount } = req.body;
@@ -68,11 +88,10 @@ router.post("/login", (req, res) => {
     } catch (e) {
       console.log("snapshot 저장 실패:", e.message);
     }
-
     // C++ 및 블루프린트 모두를 위한 응답 구조 (C++은 소문자 키를 파싱함)
     res.json({
       success: true,
-      user: user,   // C++ UEclassAPIHandler가 사용하는 키
+      user: user,  // C++ UEclassAPIHandler가 사용하는 키
       Data: {       // 블루프린트 구조체 매핑용 (내부 키는 C++ 파싱 기준인 소문자 유지)
         academicCurrency: user.academicCurrency,
         extraCurrency:    user.extraCurrency,
@@ -82,7 +101,10 @@ router.post("/login", (req, res) => {
       },
       delta: delta,
       Delta: delta,
-      hasChange: hasChange
+      hasChange: hasChange,
+      // 클라이언트 표시용 시간 정보
+      resetDoneToday:    isResetDoneToday(userId),
+      secondsUntilReset: getSecondsUntilReset()
     });
 
   } catch (err) {
@@ -135,19 +157,12 @@ router.get("/user/:userId", (req, res) => {
   }
 });
 
-// 5. 하루 정산
+// 5. 하루 정산 통계 조회
 router.post("/daily-summary", (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "userId required" });
 
   try {
-    const now = new Date();
-    const nextReset = new Date(now);
-    nextReset.setUTCHours(6, 0, 0, 0);
-    if (now.getUTCHours() >= 6) {
-      nextReset.setUTCDate(nextReset.getUTCDate() + 1);
-    }
-
     const user = getOrCreateUser(userId);
 
     let playStats = {
@@ -173,11 +188,9 @@ router.post("/daily-summary", (req, res) => {
       success: true,
       user: user,
       Data: user,
-      time: {
-        summaryAt:         now.toISOString(),
-        nextResetAt:       nextReset.toISOString(),
-        secondsUntilReset: Math.floor((nextReset - now) / 1000),
-      },
+      //  추가: 시간 정보를 서버에서 계산
+      resetDoneToday:    isResetDoneToday(userId),
+      secondsUntilReset: getSecondsUntilReset(),
       todayStats: {
         expGained:              playStats.totalExp,
         academicCurrencyGained: playStats.totalAcademicCurrency,
@@ -192,28 +205,24 @@ router.post("/daily-summary", (req, res) => {
   }
 });
 
-// 6. 정산 완료 처리
+// 6. 정산 완료 처리 (수동 호출용 - 실제론 cron이 처리)
 router.post("/daily-reset", async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "userId required" });
 
   try {
-    const alreadyReset = db.prepare(`
-      SELECT * FROM daily_reset_log
-      WHERE userId = ? AND date(resetAt) = date('now')
-    `).get(userId);
-
-    if (alreadyReset) {
+    if (isResetDoneToday(userId)) {
       const user = getOrCreateUser(userId);
       return res.json({
         success: false,
         message: "Already reset today",
         user: user,
-        Data: user
+        Data: user,
+        resetDoneToday:    true,
+        secondsUntilReset: getSecondsUntilReset()
       });
     }
 
-    // 학교서버에서 최신 데이터 가져오기
     const attendanceRes = await axios.get(`http://localhost:4000/attendance?userId=${userId}`);
     const assignmentRes = await axios.get(`http://localhost:4000/assignment?userId=${userId}`);
 
@@ -233,6 +242,8 @@ router.post("/daily-reset", async (req, res) => {
       delta: result.delta,
       Delta: result.delta,
       hasChange: result.hasChange,
+      resetDoneToday:    true,
+      secondsUntilReset: getSecondsUntilReset(),
       readyForDreamShop: true
     });
 
@@ -242,7 +253,19 @@ router.post("/daily-reset", async (req, res) => {
   }
 });
 
-// 7. 아이템 구매
+// 7. 서버 시간 조회 (언리얼 표시 전용)
+router.get("/server-time", (req, res) => {
+  const now = new Date();
+  res.json({
+    utcHour:           now.getUTCHours(),
+    utcDay:            now.getUTCDate(),
+    utcMonth:          now.getUTCMonth() + 1,
+    utcYear:           now.getUTCFullYear(),
+    secondsUntilReset: getSecondsUntilReset()
+  });
+});
+
+// 8. 아이템 구매
 router.post("/purchase", (req, res) => {
   const { userId, itemId } = req.body;
   if (!userId || !itemId) {
@@ -257,7 +280,7 @@ router.post("/purchase", (req, res) => {
   }
 });
 
-// 8. 보유 아이템 조회
+// 9. 보유 아이템 조회
 router.get("/items/:userId", (req, res) => {
   try {
     const items = getUserItems(req.params.userId);
@@ -267,7 +290,7 @@ router.get("/items/:userId", (req, res) => {
   }
 });
 
-// 9. 소모 이력 조회
+// 10. 소모 이력 조회
 router.get("/spend-log/:userId", (req, res) => {
   try {
     const log = getSpendLog(req.params.userId);
@@ -277,7 +300,7 @@ router.get("/spend-log/:userId", (req, res) => {
   }
 });
 
-// 10. 아이템 등록 (관리자용)
+// 11. 아이템 등록 (관리자용)
 router.post("/admin/item", (req, res) => {
   const { itemId, name, currencyType, price, description } = req.body;
   const validTypes = ["academicCurrency", "extraCurrency", "idleCurrency", "exp"];
@@ -303,7 +326,7 @@ router.post("/admin/item", (req, res) => {
   }
 });
 
-// 11. [Admin] 유저 리스트 조회
+// 12. [Admin] 유저 리스트 조회
 router.get("/admin/users", (req, res) => {
   try {
     const users = db.prepare("SELECT * FROM users ORDER BY updatedAt DESC").all();
@@ -313,26 +336,24 @@ router.get("/admin/users", (req, res) => {
   }
 });
 
-// 12. [Admin] 유저 데이터 직접 수정 (값 덮어쓰기)
+// 13. [Admin] 유저 데이터 직접 수정
 router.post("/admin/user/set-stats", (req, res) => {
-  const { userId, stats } = req.body; // stats: { academicCurrency, extraCurrency, idleCurrency, exp }
-  
+  const { userId, stats } = req.body;
+
   if (!userId || !stats) {
     return res.status(400).json({ success: false, error: "userId and stats required" });
   }
 
   try {
-    const stmt = db.prepare(`
-      UPDATE users 
-      SET academicCurrency = ?, 
-          extraCurrency = ?, 
-          idleCurrency = ?, 
-          exp = ?,
-          updatedAt = datetime('now')
+    const result = db.prepare(`
+      UPDATE users
+      SET academicCurrency = ?,
+          extraCurrency    = ?,
+          idleCurrency     = ?,
+          exp              = ?,
+          updatedAt        = datetime('now')
       WHERE userId = ?
-    `);
-    
-    const result = stmt.run(
+    `).run(
       stats.academicCurrency,
       stats.extraCurrency,
       stats.idleCurrency,
