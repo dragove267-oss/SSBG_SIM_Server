@@ -1,17 +1,20 @@
 const db = require("../database/db");
 
-// 재화 지급 설정 
+// 재화 지급 설정
 const REWARD_CONFIG = {
   attendance: {
     extraCurrency: 100,
     exp: 30,
+  },
+  attendance_late: {
+    exp: 15,
   },
   assignment: {
     exp: 50,
   }
 };
 
-// 유저 가져오기 
+// 유저 가져오기
 function getOrCreateUser(userId) {
   let user = db.prepare(
     "SELECT * FROM users WHERE userId = ?"
@@ -29,7 +32,15 @@ function getOrCreateUser(userId) {
   return user;
 }
 
-// 학교 데이터 기반 재화 갱신 
+// 학사 변동 로그 저장
+function saveAcademicLog(userId, changeType, detail, deltaExtra, deltaExp) {
+  db.prepare(`
+    INSERT INTO academic_change_log (userId, changeType, detail, deltaExtra, deltaExp, isRead)
+    VALUES (?, ?, ?, ?, ?, 0)
+  `).run(userId, changeType, detail, deltaExtra || 0, deltaExp || 0);
+}
+
+// 학교 데이터 기반 재화 갱신
 function applySchoolReward(userId, newAttendance, newAssignment) {
   getOrCreateUser(userId);
 
@@ -67,11 +78,64 @@ function applySchoolReward(userId, newAttendance, newAssignment) {
       updatedAt       = excluded.updatedAt
   `).run(userId, newAttendance, newAssignment);
 
-  const updated = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
+  //변동 로그 저장
+  if (deltaAttendance > 0) {
+    const detail = `출석 ${deltaAttendance}회 → Extra +${delta.extraCurrency} / EXP +${deltaAttendance * REWARD_CONFIG.attendance.exp} 획득!`;
+    saveAcademicLog(userId, "attendance", detail, delta.extraCurrency, deltaAttendance * REWARD_CONFIG.attendance.exp);
+  }
+  if (deltaAssignment > 0) {
+    const expGained = deltaAssignment * REWARD_CONFIG.assignment.exp;
+    const detail = `과제 ${deltaAssignment}회 제출 → EXP +${expGained} 획득!`;
+    saveAcademicLog(userId, "assignment", detail, 0, expGained);
+  }
 
-  // 변동분 함께 반환
+  const updated = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
   const hasChange = Object.values(delta).some(v => v > 0);
   return { user: updated, delta, hasChange };
+}
+
+// 학사 출석 기록 동기화 (주차별)
+function syncAttendanceRecords(userId, attendanceList) {
+  for (const item of attendanceList) {
+    db.prepare(`
+      INSERT INTO academic_attendance (userId, week, status)
+      VALUES (?, ?, ?)
+      ON CONFLICT(userId, week) DO UPDATE SET
+        status     = excluded.status,
+        recordedAt = datetime('now')
+    `).run(userId, item.week, item.status);
+  }
+}
+
+// 학사 과제 기록 동기화
+function syncAssignmentRecords(userId, assignmentList) {
+  for (const item of assignmentList) {
+    db.prepare(`
+      INSERT INTO academic_assignment (userId, name, status)
+      VALUES (?, ?, ?)
+      ON CONFLICT(userId, name) DO UPDATE SET
+        status     = excluded.status,
+        recordedAt = datetime('now')
+    `).run(userId, item.name, item.status);
+  }
+}
+
+// 학사 변동 로그 전체 조회 + isRead 업데이트
+function getAcademicLog(userId) {
+  const logs = db.prepare(`
+    SELECT * FROM academic_change_log
+    WHERE userId = ?
+    ORDER BY createdAt DESC
+  `).all(userId);
+
+  // 안 읽은 것들 읽음 처리
+  db.prepare(`
+    UPDATE academic_change_log
+    SET isRead = 1
+    WHERE userId = ? AND isRead = 0
+  `).run(userId);
+
+  return logs;
 }
 
 // 재화 차감 (범용)
@@ -102,34 +166,30 @@ function spendCurrency(userId, currencyType, amount) {
 }
 
 function gainCurrency(userId, currencyType, amount) {
-    // 허용된 재화 타입 검사
-    const validTypes = ["academicCurrency", "extraCurrency", "idleCurrency", "exp"];
-    if (!validTypes.includes(currencyType)) {
-        return { success: false, message: "Invalid currency type" };
-    }
+  const validTypes = ["academicCurrency", "extraCurrency", "idleCurrency", "exp"];
+  if (!validTypes.includes(currencyType)) {
+    return { success: false, message: "Invalid currency type" };
+  }
 
-    const user = getOrCreateUser(userId);
+  getOrCreateUser(userId);
 
-    // SQL 실행
-    db.prepare(`
+  db.prepare(`
     UPDATE users
-    SET ${currencyType} = ${currencyType} + ?, 
+    SET ${currencyType} = ${currencyType} + ?,
         updatedAt = datetime('now')
     WHERE userId = ?
   `).run(amount, userId);
 
-    // 최신 정보 반환
-    return {
-        success: true,
-        current: db.prepare("SELECT * FROM users WHERE userId = ?").get(userId)
-    };
+  return {
+    success: true,
+    current: db.prepare("SELECT * FROM users WHERE userId = ?").get(userId)
+  };
 }
 
-//아이템 구매
+// 아이템 구매
 function purchaseItem(userId, itemId) {
   const user = getOrCreateUser(userId);
 
-  // 아이템 정보 조회
   const item = db.prepare(
     "SELECT * FROM items WHERE itemId = ?"
   ).get(itemId);
@@ -138,12 +198,10 @@ function purchaseItem(userId, itemId) {
     return { success: false, message: "Item not found" };
   }
 
-  // 잔액 확인
   if (user[item.currencyType] < item.price) {
     return { success: false, message: "Not enough currency", current: user };
   }
 
-  // 재화 차감
   db.prepare(`
     UPDATE users
     SET ${item.currencyType} = ${item.currencyType} - ?,
@@ -151,14 +209,12 @@ function purchaseItem(userId, itemId) {
     WHERE userId = ?
   `).run(item.price, userId);
 
-  // 아이템 지급
   db.prepare(`
     INSERT INTO user_items (userId, itemId, quantity)
     VALUES (?, ?, 1)
     ON CONFLICT DO NOTHING
   `).run(userId, itemId);
 
-  // 소모 이력 기록
   db.prepare(`
     INSERT INTO spend_log (userId, currencyType, amount, reason)
     VALUES (?, ?, ?, ?)
@@ -192,11 +248,15 @@ function getSpendLog(userId) {
   `).all(userId);
 }
 
-module.exports = { 
-  getOrCreateUser, 
-  applySchoolReward, 
-    spendCurrency,
-    gainCurrency,
+module.exports = {
+  getOrCreateUser,
+  applySchoolReward,
+  syncAttendanceRecords,
+  syncAssignmentRecords,
+  getAcademicLog,
+  saveAcademicLog,
+  spendCurrency,
+  gainCurrency,
   purchaseItem,
   getUserItems,
   getSpendLog

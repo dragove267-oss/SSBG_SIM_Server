@@ -3,9 +3,20 @@ const axios = require("axios");
 const router = express.Router();
 const db = require("../database/db");
 const userService = require("../services/userService");
-const { getOrCreateUser, applySchoolReward, spendCurrency, gainCurrency, purchaseItem, getUserItems, getSpendLog } = require("../services/userService");
+const {
+  getOrCreateUser,
+  applySchoolReward,
+  spendCurrency,
+  gainCurrency,
+  purchaseItem,
+  getUserItems,
+  getSpendLog,
+  getAcademicLog,
+  syncAttendanceRecords,
+  syncAssignmentRecords
+} = require("../services/userService");
 
-//리셋 시간까지 남은 초 계산 헬퍼
+// 리셋 시간까지 남은 초 계산 헬퍼
 function getSecondsUntilReset() {
   const now = new Date();
   const nextReset = new Date(now);
@@ -16,7 +27,7 @@ function getSecondsUntilReset() {
   return Math.floor((nextReset - now) / 1000);
 }
 
-//  오늘 리셋 여부 확인 헬퍼
+// 오늘 리셋 여부 확인 헬퍼
 function isResetDoneToday(userId) {
   const row = db.prepare(`
     SELECT * FROM daily_reset_log
@@ -88,11 +99,11 @@ router.post("/login", (req, res) => {
     } catch (e) {
       console.log("snapshot 저장 실패:", e.message);
     }
-    // C++ 및 블루프린트 모두를 위한 응답 구조 (C++은 소문자 키를 파싱함)
+
     res.json({
       success: true,
-      user: user,  // C++ UEclassAPIHandler가 사용하는 키
-      Data: {       // 블루프린트 구조체 매핑용 (내부 키는 C++ 파싱 기준인 소문자 유지)
+      user: user,
+      Data: {
         academicCurrency: user.academicCurrency,
         extraCurrency:    user.extraCurrency,
         idleCurrency:     user.idleCurrency,
@@ -102,7 +113,6 @@ router.post("/login", (req, res) => {
       delta: delta,
       Delta: delta,
       hasChange: hasChange,
-      // 클라이언트 표시용 시간 정보
       resetDoneToday:    isResetDoneToday(userId),
       secondsUntilReset: getSecondsUntilReset()
     });
@@ -186,9 +196,8 @@ router.post("/daily-summary", (req, res) => {
 
     res.json({
       success: true,
-      user: user,
+      user,
       Data: user,
-      //  추가: 시간 정보를 서버에서 계산
       resetDoneToday:    isResetDoneToday(userId),
       secondsUntilReset: getSecondsUntilReset(),
       todayStats: {
@@ -226,8 +235,15 @@ router.post("/daily-reset", async (req, res) => {
     const attendanceRes = await axios.get(`http://localhost:4000/attendance?userId=${userId}`);
     const assignmentRes = await axios.get(`http://localhost:4000/assignment?userId=${userId}`);
 
-    const attendanceCount = attendanceRes.data.attendance.filter(a => a.status === "출석").length;
-    const assignmentCount = assignmentRes.data.assignment.filter(a => a.status === "제출").length;
+    const attendanceList = attendanceRes.data.attendance;
+    const assignmentList = assignmentRes.data.assignment;
+
+    const attendanceCount = attendanceList.filter(a => a.status === "출석").length;
+    const assignmentCount = assignmentList.filter(a => a.status === "제출").length;
+
+    // 출석/과제 기록 동기화
+    syncAttendanceRecords(userId, attendanceList);
+    syncAssignmentRecords(userId, assignmentList);
 
     const result = applySchoolReward(userId, attendanceCount, assignmentCount);
 
@@ -265,7 +281,19 @@ router.get("/server-time", (req, res) => {
   });
 });
 
-// 8. 아이템 구매
+// 8. ✅ 학사 변동 로그 조회 (언리얼 로그창 표시용)
+router.get("/academic-log/:userId", (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const logs = getAcademicLog(userId);
+    res.json({ success: true, logs });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 9. 아이템 구매
 router.post("/purchase", (req, res) => {
   const { userId, itemId } = req.body;
   if (!userId || !itemId) {
@@ -280,7 +308,7 @@ router.post("/purchase", (req, res) => {
   }
 });
 
-// 9. 보유 아이템 조회
+// 10. 보유 아이템 조회
 router.get("/items/:userId", (req, res) => {
   try {
     const items = getUserItems(req.params.userId);
@@ -290,7 +318,7 @@ router.get("/items/:userId", (req, res) => {
   }
 });
 
-// 10. 소모 이력 조회
+// 11. 소모 이력 조회
 router.get("/spend-log/:userId", (req, res) => {
   try {
     const log = getSpendLog(req.params.userId);
@@ -300,7 +328,7 @@ router.get("/spend-log/:userId", (req, res) => {
   }
 });
 
-// 11. 아이템 등록 (관리자용)
+// 12. 아이템 등록 (관리자용)
 router.post("/admin/item", (req, res) => {
   const { itemId, name, currencyType, price, description } = req.body;
   const validTypes = ["academicCurrency", "extraCurrency", "idleCurrency", "exp"];
@@ -326,7 +354,7 @@ router.post("/admin/item", (req, res) => {
   }
 });
 
-// 12. [Admin] 유저 리스트 조회
+// 13. [Admin] 유저 리스트 조회
 router.get("/admin/users", (req, res) => {
   try {
     const users = db.prepare("SELECT * FROM users ORDER BY updatedAt DESC").all();
@@ -336,7 +364,7 @@ router.get("/admin/users", (req, res) => {
   }
 });
 
-// 13. [Admin] 유저 데이터 직접 수정
+// 14. [Admin] 유저 데이터 직접 수정
 router.post("/admin/user/set-stats", (req, res) => {
   const { userId, stats } = req.body;
 
