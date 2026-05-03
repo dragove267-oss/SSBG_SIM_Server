@@ -3,7 +3,14 @@ const path = require("path");
 
 const db = new Database(path.join(__dirname, "game.db"));
 
+// ================================================================
+// 상수 (슬롯 개수 변경 시 여기만 수정)
+// ================================================================
+const INVENTORY_SLOT_COUNT = 30;
+
+// ================================================================
 // 기존 테이블
+// ================================================================
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -67,21 +74,21 @@ db.exec(`
   )
 `);
 
+// ================================================================
 // 학사 테이블
+// ================================================================
 
-// 과목별 출석 기록 (주차별)
 db.exec(`
   CREATE TABLE IF NOT EXISTS academic_attendance (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId    TEXT NOT NULL,
-    week      INTEGER NOT NULL,
-    status    TEXT NOT NULL CHECK(status IN ('출석', '지각', '결석')),
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId     TEXT NOT NULL,
+    week       INTEGER NOT NULL,
+    status     TEXT NOT NULL CHECK(status IN ('출석', '지각', '결석')),
     recordedAt TEXT DEFAULT (datetime('now')),
     UNIQUE(userId, week)
   )
 `);
 
-// 과제 제출 기록
 db.exec(`
   CREATE TABLE IF NOT EXISTS academic_assignment (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,40 +100,39 @@ db.exec(`
   )
 `);
 
-// 학사 변동 로그 (언리얼 출력용)
-// changeType: 'attendance' | 'assignment'
-// detail: 변동 내용 텍스트 (예: "1주차 출석 → 지각 변경")
 db.exec(`
   CREATE TABLE IF NOT EXISTS academic_change_log (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     userId     TEXT NOT NULL,
     changeType TEXT NOT NULL,
     detail     TEXT NOT NULL,
-    deltaExtra    INTEGER DEFAULT 0,
-    deltaExp      INTEGER DEFAULT 0,
+    deltaExtra INTEGER DEFAULT 0,
+    deltaExp   INTEGER DEFAULT 0,
     isRead     INTEGER DEFAULT 0,
     createdAt  TEXT DEFAULT (datetime('now'))
   )
 `);
 
-// 아이템 테이블
-// 아이템 코드 (유물 종류 정의)
-// rarity: 'common' | 'uncommon' | 'rare' | 'legendary'
+// ================================================================
+// 아이템 정의 테이블
+// itemType: 'cosmetic'(치장) | 'relic'(유물) | 'consumable'(소모성)
+// cosmeticSlot: 'hat' | 'shirt' | 'shoes' | null (치장 아이템만 사용)
+// ================================================================
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS item_definitions (
-    itemCode    TEXT PRIMARY KEY,
-    name        TEXT NOT NULL,
-    description TEXT DEFAULT '',
-    rarity      TEXT NOT NULL DEFAULT 'common'
-                CHECK(rarity IN ('common', 'uncommon', 'rare', 'legendary')),
-    createdAt   TEXT DEFAULT (datetime('now'))
+    itemCode     TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    description  TEXT DEFAULT '',
+    itemType     TEXT NOT NULL DEFAULT 'relic'
+                 CHECK(itemType IN ('cosmetic', 'relic', 'consumable')),
+    cosmeticSlot TEXT CHECK(cosmeticSlot IN ('hat', 'shirt', 'shoes') OR cosmeticSlot IS NULL),
+    createdAt    TEXT DEFAULT (datetime('now'))
   )
 `);
 
-// 옵션 코드 (효과 종류 정의)
-// optionType: 효과 식별자
+// 옵션 코드 (유물/소모성 아이템 효과)
 // valueType: 'multiplier'(배율) | 'flat'(고정값) | 'chance'(확률)
-// defaultValue: 기본 수치 (예: 1.2 = 20% 증가, 0.1 = 10% 확률 증가)
 db.exec(`
   CREATE TABLE IF NOT EXISTS item_options (
     optionCode   TEXT PRIMARY KEY,
@@ -140,7 +146,6 @@ db.exec(`
 `);
 
 // 아이템↔옵션 연결 (아이템 하나에 옵션 여러 개 가능)
-// value: 이 아이템에서의 실제 수치 (defaultValue 오버라이드)
 db.exec(`
   CREATE TABLE IF NOT EXISTS item_definition_options (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -151,28 +156,73 @@ db.exec(`
   )
 `);
 
-// 유저 인벤토리 (가방 - 보유 유물 목록)
+// ================================================================
+// 가방 (user_inventory)
+// slotIndex 0~29 (총 30칸)
+// 슬롯 구분 (권장):
+//   0~9  : 치장 아이템
+//   10~19: 유물 아이템
+//   20~29: 소모성 아이템
+// isEquipped: 0=미장착, 1=장착 (치장 아이템만 사용)
+// ================================================================
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS user_inventory (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     userId     TEXT NOT NULL,
     itemCode   TEXT NOT NULL REFERENCES item_definitions(itemCode),
+    slotIndex  INTEGER NOT NULL CHECK(slotIndex >= 0 AND slotIndex < ${INVENTORY_SLOT_COUNT}),
+    isEquipped INTEGER NOT NULL DEFAULT 0 CHECK(isEquipped IN (0, 1)),
     obtainedAt TEXT DEFAULT (datetime('now')),
-    UNIQUE(userId, itemCode)
+    UNIQUE(userId, itemCode),
+    UNIQUE(userId, slotIndex)
   )
 `);
 
-// 기본 옵션 코드 초기 데이터 삽입
+// ================================================================
+// 도감 테이블
+// collectionType: 'cosmetic'(치장) | 'relic'(유물)
+// isUnlocked: 0=미해금, 1=해금
+// ================================================================
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS collection_definitions (
+    collectionCode TEXT PRIMARY KEY,
+    itemCode       TEXT NOT NULL REFERENCES item_definitions(itemCode),
+    collectionType TEXT NOT NULL CHECK(collectionType IN ('cosmetic', 'relic')),
+    name           TEXT NOT NULL,
+    description    TEXT DEFAULT '',
+    createdAt      TEXT DEFAULT (datetime('now'))
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_collection (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    userId         TEXT NOT NULL,
+    collectionCode TEXT NOT NULL REFERENCES collection_definitions(collectionCode),
+    isUnlocked     INTEGER NOT NULL DEFAULT 0 CHECK(isUnlocked IN (0, 1)),
+    unlockedAt     TEXT,
+    UNIQUE(userId, collectionCode)
+  )
+`);
+
+// ================================================================
+// 기본 옵션 코드 초기 데이터
+// ================================================================
 db.prepare(`
   INSERT OR IGNORE INTO item_options (optionCode, name, description, valueType, defaultValue)
   VALUES
-    ('CURRENCY_EXTRA_RATE',     'Extra 재화 배율',         'Extra 재화 획득량 배율 증가',     'multiplier', 1.2),
-    ('CURRENCY_EXP_RATE',       'EXP 배율',                'EXP 획득량 배율 증가',            'multiplier', 1.2),
-    ('CURRENCY_ACADEMIC_RATE',  'Academic 재화 배율',      'Academic 재화 획득량 배율 증가',  'multiplier', 1.2),
-    ('REWARD_ATTENDANCE_BONUS', '출석 보상 증가',          '출석 시 보상 추가 지급',          'flat',       50.0),
-    ('REWARD_ASSIGNMENT_BONUS', '과제 보상 증가',          '과제 제출 시 보상 추가 지급',     'flat',       30.0),
-    ('ITEM_DROP_RATE',          '아이템 획득 확률 증가',   '아이템 드롭 확률 증가',           'chance',     0.05),
-    ('ITEM_RARE_RATE',          '희귀 아이템 확률 증가',   '희귀 등급 이상 드롭 확률 증가',   'chance',     0.03)
+    ('CURRENCY_EXTRA_RATE',     'Extra 재화 배율',       'Extra 재화 획득량 배율 증가',    'multiplier', 1.2),
+    ('CURRENCY_EXP_RATE',       'EXP 배율',              'EXP 획득량 배율 증가',           'multiplier', 1.2),
+    ('CURRENCY_ACADEMIC_RATE',  'Academic 재화 배율',    'Academic 재화 획득량 배율 증가', 'multiplier', 1.2),
+    ('REWARD_ATTENDANCE_BONUS', '출석 보상 증가',        '출석 시 보상 추가 지급',         'flat',       50.0),
+    ('REWARD_ASSIGNMENT_BONUS', '과제 보상 증가',        '과제 제출 시 보상 추가 지급',    'flat',       30.0),
+    ('ITEM_DROP_RATE',          '아이템 획득 확률 증가', '아이템 드롭 확률 증가',          'chance',     0.05),
+    ('ITEM_RARE_RATE',          '희귀 아이템 확률 증가', '희귀 등급 이상 드롭 확률 증가', 'chance',     0.03),
+    ('CONSUMABLE_EXTRA_RATE',   '소모성 Extra 배율',     '소모 시 Extra 재화 배율 증가',   'multiplier', 1.5),
+    ('CONSUMABLE_EXP_RATE',     '소모성 EXP 배율',       '소모 시 EXP 배율 증가',          'multiplier', 1.5)
 `).run();
 
 module.exports = db;
+module.exports.INVENTORY_SLOT_COUNT = INVENTORY_SLOT_COUNT;

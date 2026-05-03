@@ -13,10 +13,20 @@ const {
   getSpendLog,
   getAcademicLog,
   syncAttendanceRecords,
-  syncAssignmentRecords
+  syncAssignmentRecords,
+  addItemToInventory,
+  equipItem,
+  unequipItem,
+  getInventory,
+  getEquippedItems,
+  unlockCollection,
+  getCollection
 } = require("../services/userService");
 
-// 리셋 시간까지 남은 초 계산 헬퍼
+// ================================================================
+// 헬퍼
+// ================================================================
+
 function getSecondsUntilReset() {
   const now = new Date();
   const nextReset = new Date(now);
@@ -27,7 +37,6 @@ function getSecondsUntilReset() {
   return Math.floor((nextReset - now) / 1000);
 }
 
-// 오늘 리셋 여부 확인 헬퍼
 function isResetDoneToday(userId) {
   const row = db.prepare(`
     SELECT * FROM daily_reset_log
@@ -36,13 +45,13 @@ function isResetDoneToday(userId) {
   return !!row;
 }
 
-// 1. 학교서버 → 게임서버 웹훅
+// ================================================================
+// 학교 웹훅
+// ================================================================
+
 router.post("/school-webhook", (req, res) => {
   const { userId, attendanceCount, assignmentCount } = req.body;
-
-  if (!userId) {
-    return res.status(400).json({ error: "userId required" });
-  }
+  if (!userId) return res.status(400).json({ error: "userId required" });
 
   try {
     const result = applySchoolReward(userId, attendanceCount, assignmentCount);
@@ -57,24 +66,22 @@ router.post("/school-webhook", (req, res) => {
   }
 });
 
-// 2. 클라이언트 로그인
+// ================================================================
+// 로그인
+// ================================================================
+
 router.post("/login", (req, res) => {
   const { userId } = req.body;
-
-  if (!userId) {
-    return res.status(400).json({ error: "userId required" });
-  }
+  if (!userId) return res.status(400).json({ error: "userId required" });
 
   try {
     const user = getOrCreateUser(userId);
 
     let lastSnapshot = null;
     try {
-      lastSnapshot = db.prepare(
-        "SELECT * FROM login_snapshots WHERE userId = ?"
-      ).get(userId);
+      lastSnapshot = db.prepare("SELECT * FROM login_snapshots WHERE userId = ?").get(userId);
     } catch (e) {
-      console.log("snapshot table 없음 or 오류:", e.message);
+      console.log("snapshot 오류:", e.message);
     }
 
     const delta = {
@@ -83,7 +90,6 @@ router.post("/login", (req, res) => {
       idleCurrency:     lastSnapshot ? user.idleCurrency     - lastSnapshot.idleCurrency     : 0,
       exp:              lastSnapshot ? user.exp              - lastSnapshot.exp              : 0,
     };
-
     const hasChange = Object.values(delta).some(v => v > 0);
 
     try {
@@ -123,58 +129,57 @@ router.post("/login", (req, res) => {
   }
 });
 
-// 3. 재화 차감 요청
+// ================================================================
+// 재화
+// ================================================================
+
 router.post("/spend-currency", (req, res) => {
   const { userId, currencyType, amount } = req.body;
-
-  if (!userId || !currencyType || amount == null) {
+  if (!userId || !currencyType || amount == null)
     return res.status(400).json({ error: "userId, currencyType, amount required" });
-  }
 
   try {
-    const result = spendCurrency(userId, currencyType, amount);
-    res.json(result);
+    res.json(spendCurrency(userId, currencyType, amount));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 3.5. 재화 획득 요청
 router.post("/currency/gain", (req, res) => {
   const { userId, currencyType, amount } = req.body;
-
-  if (!userId || !currencyType || amount == null) {
+  if (!userId || !currencyType || amount == null)
     return res.status(400).json({ success: false, error: "userId, currencyType, amount required" });
-  }
 
   try {
-    const result = userService.gainCurrency(userId, currencyType, amount);
-    res.json(result);
+    res.json(userService.gainCurrency(userId, currencyType, amount));
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// 4. 유저 상태 조회
-router.get("/user/:userId", (req, res) => {
-  const { userId } = req.params;
+// ================================================================
+// 유저 상태
+// ================================================================
 
+router.get("/user/:userId", (req, res) => {
   try {
-    const user = getOrCreateUser(userId);
+    const user = getOrCreateUser(req.params.userId);
     res.json({ success: true, user: user, Data: user });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 5. 하루 정산 통계 조회
+// ================================================================
+// 정산
+// ================================================================
+
 router.post("/daily-summary", (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "userId required" });
 
   try {
     const user = getOrCreateUser(userId);
-
     let playStats = {
       totalExp: 0, totalAcademicCurrency: 0,
       totalExtraCurrency: 0, totalIdleCurrency: 0, playTime: 0
@@ -196,8 +201,7 @@ router.post("/daily-summary", (req, res) => {
 
     res.json({
       success: true,
-      user,
-      Data: user,
+      user, Data: user,
       resetDoneToday:    isResetDoneToday(userId),
       secondsUntilReset: getSecondsUntilReset(),
       todayStats: {
@@ -209,12 +213,10 @@ router.post("/daily-summary", (req, res) => {
       }
     });
   } catch (err) {
-    console.error("DAILY SUMMARY ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 6. 정산 완료 처리 (수동 호출용 - 실제론 cron이 처리)
 router.post("/daily-reset", async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "userId required" });
@@ -223,11 +225,9 @@ router.post("/daily-reset", async (req, res) => {
     if (isResetDoneToday(userId)) {
       const user = getOrCreateUser(userId);
       return res.json({
-        success: false,
-        message: "Already reset today",
-        user: user,
-        Data: user,
-        resetDoneToday:    true,
+        success: false, message: "Already reset today",
+        user, Data: user,
+        resetDoneToday: true,
         secondsUntilReset: getSecondsUntilReset()
       });
     }
@@ -238,38 +238,34 @@ router.post("/daily-reset", async (req, res) => {
     const attendanceList = attendanceRes.data.attendance;
     const assignmentList = assignmentRes.data.assignment;
 
-    const attendanceCount = attendanceList.filter(a => a.status === "출석").length;
-    const assignmentCount = assignmentList.filter(a => a.status === "제출").length;
-
-    // 출석/과제 기록 동기화
     syncAttendanceRecords(userId, attendanceList);
     syncAssignmentRecords(userId, assignmentList);
 
+    const attendanceCount = attendanceList.filter(a => a.status === "출석").length;
+    const assignmentCount = assignmentList.filter(a => a.status === "제출").length;
     const result = applySchoolReward(userId, attendanceCount, assignmentCount);
 
-    db.prepare(
-      "INSERT INTO daily_reset_log (userId, resetAt) VALUES (?, datetime('now'))"
-    ).run(userId);
+    db.prepare("INSERT INTO daily_reset_log (userId, resetAt) VALUES (?, datetime('now'))").run(userId);
 
     res.json({
       success: true,
-      user: result.user,
-      Data: result.user,
-      delta: result.delta,
-      Delta: result.delta,
+      user: result.user, Data: result.user,
+      delta: result.delta, Delta: result.delta,
       hasChange: result.hasChange,
-      resetDoneToday:    true,
+      resetDoneToday: true,
       secondsUntilReset: getSecondsUntilReset(),
       readyForDreamShop: true
     });
-
   } catch (err) {
     console.error("DAILY RESET ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// 7. 서버 시간 조회 (언리얼 표시 전용)
+// ================================================================
+// 서버 시간
+// ================================================================
+
 router.get("/server-time", (req, res) => {
   const now = new Date();
   res.json({
@@ -281,80 +277,203 @@ router.get("/server-time", (req, res) => {
   });
 });
 
-// 8. ✅ 학사 변동 로그 조회 (언리얼 로그창 표시용)
-router.get("/academic-log/:userId", (req, res) => {
-  const { userId } = req.params;
+// ================================================================
+// 학사 로그
+// ================================================================
 
+router.get("/academic-log/:userId", (req, res) => {
   try {
-    const logs = getAcademicLog(userId);
+    const logs = getAcademicLog(req.params.userId);
     res.json({ success: true, logs });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 9. 아이템 구매
-router.post("/purchase", (req, res) => {
-  const { userId, itemId } = req.body;
-  if (!userId || !itemId) {
-    return res.status(400).json({ error: "userId, itemId required" });
-  }
+// ================================================================
+// 인벤토리
+// ================================================================
 
+// 가방 전체 조회
+router.get("/inventory/:userId", (req, res) => {
   try {
-    const result = purchaseItem(userId, itemId);
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// 10. 보유 아이템 조회
-router.get("/items/:userId", (req, res) => {
-  try {
-    const items = getUserItems(req.params.userId);
+    const items = getInventory(req.params.userId);
     res.json({ success: true, items });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 11. 소모 이력 조회
-router.get("/spend-log/:userId", (req, res) => {
+// 장착 중인 아이템만 조회
+router.get("/inventory/:userId/equipped", (req, res) => {
   try {
-    const log = getSpendLog(req.params.userId);
-    res.json({ success: true, log });
+    const items = getEquippedItems(req.params.userId);
+    res.json({ success: true, items });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 12. 아이템 등록 (관리자용)
+// 아이템 획득 (인벤토리 추가)
+router.post("/inventory/add", (req, res) => {
+  const { userId, itemCode } = req.body;
+  if (!userId || !itemCode)
+    return res.status(400).json({ error: "userId, itemCode required" });
+
+  try {
+    const result = addItemToInventory(userId, itemCode);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 치장 아이템 장착
+router.post("/inventory/equip", (req, res) => {
+  const { userId, itemCode } = req.body;
+  if (!userId || !itemCode)
+    return res.status(400).json({ error: "userId, itemCode required" });
+
+  try {
+    const result = equipItem(userId, itemCode);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 치장 아이템 해제
+router.post("/inventory/unequip", (req, res) => {
+  const { userId, itemCode } = req.body;
+  if (!userId || !itemCode)
+    return res.status(400).json({ error: "userId, itemCode required" });
+
+  try {
+    const result = unequipItem(userId, itemCode);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================================================================
+// 도감
+// ================================================================
+
+// 도감 전체 조회 (타입 필터 가능: ?type=cosmetic or ?type=relic)
+router.get("/collection/:userId", (req, res) => {
+  const { type } = req.query;
+  try {
+    const entries = getCollection(req.params.userId, type || null);
+    res.json({ success: true, entries });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================================================================
+// 아이템 구매 (기존)
+// ================================================================
+
+router.post("/purchase", (req, res) => {
+  const { userId, itemId } = req.body;
+  if (!userId || !itemId)
+    return res.status(400).json({ error: "userId, itemId required" });
+
+  try {
+    res.json(purchaseItem(userId, itemId));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/items/:userId", (req, res) => {
+  try {
+    res.json({ success: true, items: getUserItems(req.params.userId) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/spend-log/:userId", (req, res) => {
+  try {
+    res.json({ success: true, log: getSpendLog(req.params.userId) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================================================================
+// 어드민
+// ================================================================
+
 router.post("/admin/item", (req, res) => {
   const { itemId, name, currencyType, price, description } = req.body;
   const validTypes = ["academicCurrency", "extraCurrency", "idleCurrency", "exp"];
-
-  if (!itemId || !name || !validTypes.includes(currencyType) || price == null) {
+  if (!itemId || !name || !validTypes.includes(currencyType) || price == null)
     return res.status(400).json({ error: "itemId, name, currencyType, price required" });
-  }
 
   try {
     db.prepare(`
       INSERT INTO items (itemId, name, currencyType, price, description)
       VALUES (?, ?, ?, ?, ?)
       ON CONFLICT(itemId) DO UPDATE SET
-        name         = excluded.name,
-        currencyType = excluded.currencyType,
-        price        = excluded.price,
-        description  = excluded.description
+        name = excluded.name, currencyType = excluded.currencyType,
+        price = excluded.price, description = excluded.description
     `).run(itemId, name, currencyType, price, description || "");
-
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 13. [Admin] 유저 리스트 조회
+// 아이템 정의 등록
+router.post("/admin/item-definition", (req, res) => {
+  const { itemCode, name, description, itemType, cosmeticSlot } = req.body;
+  const validTypes = ["cosmetic", "relic", "consumable"];
+  const validSlots = ["hat", "shirt", "shoes", null];
+
+  if (!itemCode || !name || !validTypes.includes(itemType))
+    return res.status(400).json({ error: "itemCode, name, itemType required" });
+  if (itemType === "cosmetic" && !validSlots.includes(cosmeticSlot))
+    return res.status(400).json({ error: "cosmeticSlot required for cosmetic items (hat/shirt/shoes)" });
+
+  try {
+    db.prepare(`
+      INSERT INTO item_definitions (itemCode, name, description, itemType, cosmeticSlot)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(itemCode) DO UPDATE SET
+        name = excluded.name, description = excluded.description,
+        itemType = excluded.itemType, cosmeticSlot = excluded.cosmeticSlot
+    `).run(itemCode, name, description || "", itemType, cosmeticSlot || null);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 도감 항목 등록
+router.post("/admin/collection-definition", (req, res) => {
+  const { collectionCode, itemCode, collectionType, name, description } = req.body;
+  const validTypes = ["cosmetic", "relic"];
+
+  if (!collectionCode || !itemCode || !validTypes.includes(collectionType) || !name)
+    return res.status(400).json({ error: "collectionCode, itemCode, collectionType, name required" });
+
+  try {
+    db.prepare(`
+      INSERT INTO collection_definitions (collectionCode, itemCode, collectionType, name, description)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(collectionCode) DO UPDATE SET
+        itemCode = excluded.itemCode, collectionType = excluded.collectionType,
+        name = excluded.name, description = excluded.description
+    `).run(collectionCode, itemCode, collectionType, name, description || "");
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get("/admin/users", (req, res) => {
   try {
     const users = db.prepare("SELECT * FROM users ORDER BY updatedAt DESC").all();
@@ -364,30 +483,18 @@ router.get("/admin/users", (req, res) => {
   }
 });
 
-// 14. [Admin] 유저 데이터 직접 수정
 router.post("/admin/user/set-stats", (req, res) => {
   const { userId, stats } = req.body;
-
-  if (!userId || !stats) {
+  if (!userId || !stats)
     return res.status(400).json({ success: false, error: "userId and stats required" });
-  }
 
   try {
     const result = db.prepare(`
       UPDATE users
-      SET academicCurrency = ?,
-          extraCurrency    = ?,
-          idleCurrency     = ?,
-          exp              = ?,
-          updatedAt        = datetime('now')
+      SET academicCurrency = ?, extraCurrency = ?, idleCurrency = ?, exp = ?,
+          updatedAt = datetime('now')
       WHERE userId = ?
-    `).run(
-      stats.academicCurrency,
-      stats.extraCurrency,
-      stats.idleCurrency,
-      stats.exp,
-      userId
-    );
+    `).run(stats.academicCurrency, stats.extraCurrency, stats.idleCurrency, stats.exp, userId);
 
     if (result.changes > 0) {
       const updatedUser = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
