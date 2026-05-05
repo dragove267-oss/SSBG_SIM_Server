@@ -14,6 +14,9 @@ const REWARD_CONFIG = {
   }
 };
 
+// 슬롯 총 개수 (db.js 상수와 동기화)
+const INVENTORY_SLOT_COUNT = 30;
+
 // ================================================================
 // 유저
 // ================================================================
@@ -28,6 +31,46 @@ function getOrCreateUser(userId) {
     user = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
   }
   return user;
+}
+
+// ================================================================
+// 옵션 효과 계산
+// ================================================================
+
+function getUserOptionValue(userId, optionCode) {
+  const options = db.prepare(`
+    SELECT ido.value, io.valueType
+    FROM user_inventory ui
+    JOIN item_definition_options ido ON ui.itemCode = ido.itemCode
+    JOIN item_options io ON ido.optionCode = io.optionCode
+    WHERE ui.userId = ? AND ido.optionCode = ?
+  `).all(userId, optionCode);
+
+  if (options.length === 0) return null;
+
+  const valueType = options[0].valueType;
+  if (valueType === "multiplier") {
+    return options.reduce((acc, o) => acc * o.value, 1.0);
+  } else {
+    return options.reduce((acc, o) => acc + o.value, 0);
+  }
+}
+
+function applyOptionToAmount(userId, currencyType, baseAmount) {
+  const optionMap = {
+    extraCurrency:    "CURRENCY_EXTRA_RATE",
+    exp:              "CURRENCY_EXP_RATE",
+    academicCurrency: "CURRENCY_ACADEMIC_RATE",
+    idleCurrency:     null
+  };
+
+  const optionCode = optionMap[currencyType];
+  if (!optionCode) return baseAmount;
+
+  const multiplier = getUserOptionValue(userId, optionCode);
+  if (!multiplier) return baseAmount;
+
+  return Math.floor(baseAmount * multiplier);
 }
 
 // ================================================================
@@ -51,12 +94,18 @@ function applySchoolReward(userId, newAttendance, newAssignment) {
   const deltaAttendance = Math.max(0, newAttendance - snapshot.attendanceCount);
   const deltaAssignment = Math.max(0, newAssignment - snapshot.assignmentCount);
 
+  const baseExtra = deltaAttendance * REWARD_CONFIG.attendance.extraCurrency;
+  const baseExp   = deltaAttendance * REWARD_CONFIG.attendance.exp
+                  + deltaAssignment * REWARD_CONFIG.assignment.exp;
+
+  const finalExtra = applyOptionToAmount(userId, "extraCurrency", baseExtra);
+  const finalExp   = applyOptionToAmount(userId, "exp", baseExp);
+
   const delta = {
     academicCurrency: 0,
-    extraCurrency:    deltaAttendance * (REWARD_CONFIG.attendance.extraCurrency || 0),
+    extraCurrency:    finalExtra,
     idleCurrency:     0,
-    exp:              deltaAttendance * (REWARD_CONFIG.attendance.exp || 0)
-                    + deltaAssignment * (REWARD_CONFIG.assignment.exp || 0),
+    exp:              finalExp,
   };
 
   db.prepare(`
@@ -79,13 +128,16 @@ function applySchoolReward(userId, newAttendance, newAssignment) {
   `).run(userId, newAttendance, newAssignment);
 
   if (deltaAttendance > 0) {
-    const detail = `출석 ${deltaAttendance}회 → Extra +${delta.extraCurrency} / EXP +${deltaAttendance * REWARD_CONFIG.attendance.exp} 획득!`;
-    saveAcademicLog(userId, "attendance", detail, delta.extraCurrency, deltaAttendance * REWARD_CONFIG.attendance.exp);
+    const detail = baseExtra !== finalExtra
+      ? `출석 ${deltaAttendance}회 → Extra +${finalExtra} (기본 ${baseExtra} x배율) / EXP +${finalExp} 획득!`
+      : `출석 ${deltaAttendance}회 → Extra +${finalExtra} / EXP +${finalExp} 획득!`;
+    saveAcademicLog(userId, "attendance", detail, finalExtra, finalExp);
   }
   if (deltaAssignment > 0) {
-    const expGained = deltaAssignment * REWARD_CONFIG.assignment.exp;
-    const detail = `과제 ${deltaAssignment}회 제출 → EXP +${expGained} 획득!`;
-    saveAcademicLog(userId, "assignment", detail, 0, expGained);
+    const baseAssignExp  = deltaAssignment * REWARD_CONFIG.assignment.exp;
+    const finalAssignExp = applyOptionToAmount(userId, "exp", baseAssignExp);
+    const detail = `과제 ${deltaAssignment}회 제출 → EXP +${finalAssignExp} 획득!`;
+    saveAcademicLog(userId, "assignment", detail, 0, finalAssignExp);
   }
 
   const updated = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
@@ -99,8 +151,7 @@ function syncAttendanceRecords(userId, attendanceList) {
       INSERT INTO academic_attendance (userId, week, status)
       VALUES (?, ?, ?)
       ON CONFLICT(userId, week) DO UPDATE SET
-        status     = excluded.status,
-        recordedAt = datetime('now')
+        status = excluded.status, recordedAt = datetime('now')
     `).run(userId, item.week, item.status);
   }
 }
@@ -111,8 +162,7 @@ function syncAssignmentRecords(userId, assignmentList) {
       INSERT INTO academic_assignment (userId, name, status)
       VALUES (?, ?, ?)
       ON CONFLICT(userId, name) DO UPDATE SET
-        status     = excluded.status,
-        recordedAt = datetime('now')
+        status = excluded.status, recordedAt = datetime('now')
     `).run(userId, item.name, item.status);
   }
 }
@@ -125,8 +175,7 @@ function getAcademicLog(userId) {
   `).all(userId);
 
   db.prepare(`
-    UPDATE academic_change_log
-    SET isRead = 1
+    UPDATE academic_change_log SET isRead = 1
     WHERE userId = ? AND isRead = 0
   `).run(userId);
 
@@ -139,165 +188,111 @@ function getAcademicLog(userId) {
 
 function spendCurrency(userId, currencyType, amount) {
   const validTypes = ["academicCurrency", "extraCurrency", "idleCurrency", "exp"];
-  if (!validTypes.includes(currencyType)) {
+  if (!validTypes.includes(currencyType))
     return { success: false, message: "Invalid currency type" };
-  }
 
   const user = getOrCreateUser(userId);
-  if (user[currencyType] < amount) {
+  if (user[currencyType] < amount)
     return { success: false, message: "Not enough currency", current: user };
-  }
 
   db.prepare(`
-    UPDATE users
-    SET ${currencyType} = ${currencyType} - ?,
-        updatedAt = datetime('now')
+    UPDATE users SET ${currencyType} = ${currencyType} - ?, updatedAt = datetime('now')
     WHERE userId = ?
   `).run(amount, userId);
 
-  return {
-    success: true,
-    current: db.prepare("SELECT * FROM users WHERE userId = ?").get(userId)
-  };
+  return { success: true, current: db.prepare("SELECT * FROM users WHERE userId = ?").get(userId) };
 }
 
 function gainCurrency(userId, currencyType, amount) {
   const validTypes = ["academicCurrency", "extraCurrency", "idleCurrency", "exp"];
-  if (!validTypes.includes(currencyType)) {
+  if (!validTypes.includes(currencyType))
     return { success: false, message: "Invalid currency type" };
-  }
 
   getOrCreateUser(userId);
+
+  const finalAmount = applyOptionToAmount(userId, currencyType, amount);
+
   db.prepare(`
-    UPDATE users
-    SET ${currencyType} = ${currencyType} + ?,
-        updatedAt = datetime('now')
+    UPDATE users SET ${currencyType} = ${currencyType} + ?, updatedAt = datetime('now')
     WHERE userId = ?
-  `).run(amount, userId);
+  `).run(finalAmount, userId);
 
   return {
     success: true,
+    baseAmount: amount,
+    finalAmount: finalAmount,
     current: db.prepare("SELECT * FROM users WHERE userId = ?").get(userId)
   };
 }
 
 // ================================================================
-// 인벤토리 - 아이템 추가
-// 아이템 획득 시 빈 슬롯에 자동 배치 + 도감 자동 해금
+// 인벤토리
 // ================================================================
 
 function addItemToInventory(userId, itemCode) {
   getOrCreateUser(userId);
 
-  // 아이템 정보 확인
-  const itemDef = db.prepare(
-    "SELECT * FROM item_definitions WHERE itemCode = ?"
-  ).get(itemCode);
-  if (!itemDef) {
-    return { success: false, message: "Item not found" };
-  }
+  const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
+  if (!itemDef) return { success: false, message: "Item not found" };
 
-  // 이미 보유 중인지 확인
   const already = db.prepare(
     "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
   ).get(userId, itemCode);
-  if (already) {
-    return { success: false, message: "Item already owned" };
-  }
+  if (already) return { success: false, message: "Item already owned" };
 
-  // itemType별 슬롯 범위 결정
-  const slotRanges = {
-    cosmetic:   { min: 0,  max: 9  },
-    relic:      { min: 10, max: 19 },
-    consumable: { min: 20, max: 29 }
-  };
-  const range = slotRanges[itemDef.itemType];
-
-  // 빈 슬롯 찾기
+  // 타입 관계없이 전체 슬롯에서 빈 슬롯 순서대로 배치
   const usedSlots = db.prepare(
-    "SELECT slotIndex FROM user_inventory WHERE userId = ? AND slotIndex >= ? AND slotIndex <= ?"
-  ).all(userId, range.min, range.max).map(r => r.slotIndex);
+    "SELECT slotIndex FROM user_inventory WHERE userId = ?"
+  ).all(userId).map(r => r.slotIndex);
 
   let emptySlot = null;
-  for (let i = range.min; i <= range.max; i++) {
+  for (let i = 0; i < INVENTORY_SLOT_COUNT; i++) {
     if (!usedSlots.includes(i)) { emptySlot = i; break; }
   }
+  if (emptySlot === null) return { success: false, message: "Inventory full" };
 
-  if (emptySlot === null) {
-    return { success: false, message: "Inventory full" };
-  }
-
-  // 인벤토리에 추가
   db.prepare(`
     INSERT INTO user_inventory (userId, itemCode, slotIndex, isEquipped)
     VALUES (?, ?, ?, 0)
   `).run(userId, itemCode, emptySlot);
 
-  // ✅ 도감 자동 해금
   unlockCollection(userId, itemCode);
 
-  return {
-    success: true,
-    slotIndex: emptySlot,
-    item: itemDef
-  };
+  return { success: true, slotIndex: emptySlot, item: itemDef };
 }
-
-// ================================================================
-// 인벤토리 - 치장 아이템 장착 / 해제
-// 같은 cosmeticSlot은 1개만 장착 가능 (기존 장착 자동 해제)
-// ================================================================
 
 function equipItem(userId, itemCode) {
   const invItem = db.prepare(
     "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
   ).get(userId, itemCode);
-  if (!invItem) {
-    return { success: false, message: "Item not in inventory" };
-  }
+  if (!invItem) return { success: false, message: "Item not in inventory" };
 
-  const itemDef = db.prepare(
-    "SELECT * FROM item_definitions WHERE itemCode = ?"
-  ).get(itemCode);
-
-  // 치장 아이템만 장착 가능
-  if (itemDef.itemType !== "cosmetic") {
+  const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
+  if (itemDef.itemType !== "cosmetic")
     return { success: false, message: "Only cosmetic items can be equipped" };
-  }
 
-  // 같은 슬롯 기존 장착 해제
+  // 같은 cosmeticSlot 기존 장착 해제
   db.prepare(`
-    UPDATE user_inventory
-    SET isEquipped = 0
-    WHERE userId = ?
-      AND isEquipped = 1
+    UPDATE user_inventory SET isEquipped = 0
+    WHERE userId = ? AND isEquipped = 1
       AND itemCode IN (
-        SELECT itemCode FROM item_definitions
-        WHERE cosmeticSlot = ?
+        SELECT itemCode FROM item_definitions WHERE cosmeticSlot = ?
       )
   `).run(userId, itemDef.cosmeticSlot);
 
-  // 장착
   db.prepare(`
-    UPDATE user_inventory
-    SET isEquipped = 1
+    UPDATE user_inventory SET isEquipped = 1
     WHERE userId = ? AND itemCode = ?
   `).run(userId, itemCode);
 
-  return {
-    success: true,
-    equipped: itemCode,
-    slot: itemDef.cosmeticSlot
-  };
+  return { success: true, equipped: itemCode, slot: itemDef.cosmeticSlot };
 }
 
 function unequipItem(userId, itemCode) {
   const invItem = db.prepare(
     "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
   ).get(userId, itemCode);
-  if (!invItem) {
-    return { success: false, message: "Item not in inventory" };
-  }
+  if (!invItem) return { success: false, message: "Item not in inventory" };
 
   db.prepare(`
     UPDATE user_inventory SET isEquipped = 0
@@ -307,21 +302,12 @@ function unequipItem(userId, itemCode) {
   return { success: true, unequipped: itemCode };
 }
 
-// ================================================================
-// 인벤토리 조회
-// ================================================================
-
+// 가방 전체 조회
 function getInventory(userId) {
   return db.prepare(`
     SELECT
-      ui.slotIndex,
-      ui.isEquipped,
-      ui.obtainedAt,
-      id.itemCode,
-      id.name,
-      id.description,
-      id.itemType,
-      id.cosmeticSlot
+      ui.slotIndex, ui.isEquipped, ui.obtainedAt,
+      id.itemCode, id.name, id.description, id.itemType, id.cosmeticSlot
     FROM user_inventory ui
     JOIN item_definitions id ON ui.itemCode = id.itemCode
     WHERE ui.userId = ?
@@ -329,14 +315,26 @@ function getInventory(userId) {
   `).all(userId);
 }
 
+// 탭별 조회 (itemType 기준 필터 - 슬롯 구조와 독립적)
+// itemType: 'cosmetic' | 'relic' | 'consumable' | null(전체)
+function getInventoryByType(userId, itemType) {
+  if (!itemType) return getInventory(userId);
+
+  return db.prepare(`
+    SELECT
+      ui.slotIndex, ui.isEquipped, ui.obtainedAt,
+      id.itemCode, id.name, id.description, id.itemType, id.cosmeticSlot
+    FROM user_inventory ui
+    JOIN item_definitions id ON ui.itemCode = id.itemCode
+    WHERE ui.userId = ? AND id.itemType = ?
+    ORDER BY ui.slotIndex ASC
+  `).all(userId, itemType);
+}
+
 // 장착 중인 치장 아이템만 조회
 function getEquippedItems(userId) {
   return db.prepare(`
-    SELECT
-      ui.slotIndex,
-      id.itemCode,
-      id.name,
-      id.cosmeticSlot
+    SELECT ui.slotIndex, id.itemCode, id.name, id.cosmeticSlot
     FROM user_inventory ui
     JOIN item_definitions id ON ui.itemCode = id.itemCode
     WHERE ui.userId = ? AND ui.isEquipped = 1
@@ -344,19 +342,38 @@ function getEquippedItems(userId) {
   `).all(userId);
 }
 
+// 특정 아이템 옵션 조회
+function getItemOptions(itemCode) {
+  return db.prepare(`
+    SELECT ido.optionCode, ido.value, io.name, io.description, io.valueType
+    FROM item_definition_options ido
+    JOIN item_options io ON ido.optionCode = io.optionCode
+    WHERE ido.itemCode = ?
+  `).all(itemCode);
+}
+
+// 유저 보유 전체 옵션 효과 조회
+function getUserAllOptions(userId) {
+  return db.prepare(`
+    SELECT
+      ido.optionCode, io.name, io.valueType, ido.value,
+      id.itemCode, id.name AS itemName
+    FROM user_inventory ui
+    JOIN item_definition_options ido ON ui.itemCode = ido.itemCode
+    JOIN item_options io ON ido.optionCode = io.optionCode
+    JOIN item_definitions id ON ui.itemCode = id.itemCode
+    WHERE ui.userId = ?
+    ORDER BY ido.optionCode ASC
+  `).all(userId);
+}
+
 // ================================================================
-// 도감 해금
-// 아이템 획득 시 자동 호출 (collectionType은 itemType 기준)
+// 도감
 // ================================================================
 
 function unlockCollection(userId, itemCode) {
-  const itemDef = db.prepare(
-    "SELECT * FROM item_definitions WHERE itemCode = ?"
-  ).get(itemCode);
-  if (!itemDef) return;
-
-  // 소모성 아이템은 도감 없음
-  if (itemDef.itemType === "consumable") return;
+  const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
+  if (!itemDef || itemDef.itemType === "consumable") return;
 
   const collectionEntry = db.prepare(
     "SELECT * FROM collection_definitions WHERE itemCode = ?"
@@ -372,31 +389,18 @@ function unlockCollection(userId, itemCode) {
   `).run(userId, collectionEntry.collectionCode);
 }
 
-// 도감 전체 조회 (해금/미해금 모두)
 function getCollection(userId, collectionType) {
   const query = collectionType
-    ? `SELECT
-        cd.collectionCode,
-        cd.name,
-        cd.description,
-        cd.collectionType,
-        COALESCE(uc.isUnlocked, 0) AS isUnlocked,
-        uc.unlockedAt
+    ? `SELECT cd.collectionCode, cd.name, cd.description, cd.collectionType,
+              COALESCE(uc.isUnlocked, 0) AS isUnlocked, uc.unlockedAt
        FROM collection_definitions cd
-       LEFT JOIN user_collection uc
-         ON cd.collectionCode = uc.collectionCode AND uc.userId = ?
+       LEFT JOIN user_collection uc ON cd.collectionCode = uc.collectionCode AND uc.userId = ?
        WHERE cd.collectionType = ?
        ORDER BY cd.collectionCode ASC`
-    : `SELECT
-        cd.collectionCode,
-        cd.name,
-        cd.description,
-        cd.collectionType,
-        COALESCE(uc.isUnlocked, 0) AS isUnlocked,
-        uc.unlockedAt
+    : `SELECT cd.collectionCode, cd.name, cd.description, cd.collectionType,
+              COALESCE(uc.isUnlocked, 0) AS isUnlocked, uc.unlockedAt
        FROM collection_definitions cd
-       LEFT JOIN user_collection uc
-         ON cd.collectionCode = uc.collectionCode AND uc.userId = ?
+       LEFT JOIN user_collection uc ON cd.collectionCode = uc.collectionCode AND uc.userId = ?
        ORDER BY cd.collectionType ASC, cd.collectionCode ASC`;
 
   return collectionType
@@ -412,51 +416,34 @@ function purchaseItem(userId, itemId) {
   const user = getOrCreateUser(userId);
   const item = db.prepare("SELECT * FROM items WHERE itemId = ?").get(itemId);
   if (!item) return { success: false, message: "Item not found" };
-  if (user[item.currencyType] < item.price) {
+  if (user[item.currencyType] < item.price)
     return { success: false, message: "Not enough currency", current: user };
-  }
 
   db.prepare(`
-    UPDATE users
-    SET ${item.currencyType} = ${item.currencyType} - ?,
-        updatedAt = datetime('now')
+    UPDATE users SET ${item.currencyType} = ${item.currencyType} - ?, updatedAt = datetime('now')
     WHERE userId = ?
   `).run(item.price, userId);
 
-  db.prepare(`
-    INSERT INTO user_items (userId, itemId, quantity)
-    VALUES (?, ?, 1)
-    ON CONFLICT DO NOTHING
-  `).run(userId, itemId);
+  db.prepare(`INSERT INTO user_items (userId, itemId, quantity) VALUES (?, ?, 1) ON CONFLICT DO NOTHING`)
+    .run(userId, itemId);
 
-  db.prepare(`
-    INSERT INTO spend_log (userId, currencyType, amount, reason)
-    VALUES (?, ?, ?, ?)
-  `).run(userId, item.currencyType, item.price, `purchase:${itemId}`);
+  db.prepare(`INSERT INTO spend_log (userId, currencyType, amount, reason) VALUES (?, ?, ?, ?)`)
+    .run(userId, item.currencyType, item.price, `purchase:${itemId}`);
 
-  return {
-    success: true,
-    item,
-    current: db.prepare("SELECT * FROM users WHERE userId = ?").get(userId)
-  };
+  return { success: true, item, current: db.prepare("SELECT * FROM users WHERE userId = ?").get(userId) };
 }
 
 function getUserItems(userId) {
   return db.prepare(`
     SELECT ui.*, i.name, i.description
-    FROM user_items ui
-    JOIN items i ON ui.itemId = i.itemId
-    WHERE ui.userId = ?
-    ORDER BY ui.obtainedAt DESC
+    FROM user_items ui JOIN items i ON ui.itemId = i.itemId
+    WHERE ui.userId = ? ORDER BY ui.obtainedAt DESC
   `).all(userId);
 }
 
 function getSpendLog(userId) {
   return db.prepare(`
-    SELECT * FROM spend_log
-    WHERE userId = ?
-    ORDER BY spentAt DESC
-    LIMIT 50
+    SELECT * FROM spend_log WHERE userId = ? ORDER BY spentAt DESC LIMIT 50
   `).all(userId);
 }
 
@@ -473,7 +460,12 @@ module.exports = {
   equipItem,
   unequipItem,
   getInventory,
+  getInventoryByType,
   getEquippedItems,
+  getItemOptions,
+  getUserAllOptions,
+  getUserOptionValue,
+  applyOptionToAmount,
   unlockCollection,
   getCollection,
   purchaseItem,
