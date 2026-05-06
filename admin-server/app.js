@@ -1,70 +1,255 @@
 const express = require("express");
+const path = require("path");
+const Database = require("better-sqlite3");
 const cors = require("cors");
 const axios = require("axios");
-const path = require("path");
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
+const GAME_SERVER_URL = "http://localhost:3000";
 
-app.use(cors());
-app.use(express.json());
+// DB 경로 설정
+const dbPath = path.join(__dirname, "..", "game-server", "database", "game.db");
+const schoolDbPath = path.join(__dirname, "..", "school-server", "database", "school.db");
+
+let db, schoolDb;
+
+function connectDBs() {
+    try {
+        db = new Database(dbPath);
+        schoolDb = new Database(schoolDbPath);
+        try { db.exec("ALTER TABLE users ADD COLUMN studentId TEXT UNIQUE DEFAULT NULL"); } catch(e) {}
+        try { db.exec("ALTER TABLE item_definitions ADD COLUMN itemType TEXT NOT NULL DEFAULT 'relic'"); } catch(e) {}
+        try { db.exec("ALTER TABLE item_definitions ADD COLUMN cosmeticSlot TEXT"); } catch(e) {}
+    } catch (err) { console.error("[Admin] DB 연결 실패:", err.message); }
+}
+connectDBs();
+
+// 보상 동기화 함수
+async function triggerRewardSyncByStudentId(studentId, type) {
+    try {
+        const user = db.prepare("SELECT userId FROM users WHERE studentId = ?").get(studentId);
+        if (user) {
+            await axios.post(`${GAME_SERVER_URL}/api/admin/apply-reward`, { userId: user.userId, type });
+            console.log(`[Admin-Sync] 보상 동기화 요청 (${type}): ${user.userId}`);
+        }
+    } catch (err) { console.error(`[Admin-Sync] 동기화 실패: ${err.message}`); }
+}
+
+async function triggerRewardSyncByUserId(userId, type) {
+    try {
+        await axios.post(`${GAME_SERVER_URL}/api/admin/apply-reward`, { userId, type });
+        console.log(`[Admin-Sync] 보상 동기화 요청 (${type}): ${userId}`);
+    } catch (err) { console.error(`[Admin-Sync] 동기화 실패: ${err.message}`); }
+}
+
+app.set("view engine", "ejs");
+app.set("views", path.join(__dirname, "views"));
 app.use(express.static(path.join(__dirname, "public")));
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+app.use(cors());
 
-// --- API 엔드포인트 ---
+// --- Routes ---
 
-// 1. 유저 리스트 조회 (게임 서버 API 호출)
-app.get("/api/admin/users", async (req, res) => {
-  try {
-    const response = await axios.get("http://localhost:3000/api/admin/users");
-    res.json(response.data);
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.response?.data || err.message });
-  }
+app.get("/", (req, res) => {
+    let userCount = 0; let recentLogs = [];
+    try {
+        userCount = db.prepare("SELECT COUNT(*) as count FROM users").get().count;
+        recentLogs = db.prepare("SELECT * FROM spend_log ORDER BY spentAt DESC LIMIT 5").all();
+    } catch (e) {}
+    res.render("index", { userCount, recentLogs, page: 'dashboard' });
 });
 
-// 2. 유저 데이터 수정 (기존 게임 서버 API 호출)
-app.post("/api/admin/user/modify", async (req, res) => {
-  const { userId, currencyType, amount, action } = req.body;
-  const endpoint = action === "gain" ? "/api/currency/gain" : "/api/spend-currency";
-  
-  try {
-    const response = await axios.post(`http://localhost:3000${endpoint}`, {
-      userId,
-      currencyType,
-      amount: parseInt(amount)
-    });
-    res.json({ success: true, data: response.data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.response?.data || err.message });
-  }
+app.get("/users", (req, res) => {
+    const search = req.query.search || "";
+    let users = [];
+    try {
+        if (search) users = db.prepare("SELECT * FROM users WHERE userId LIKE ? OR studentId LIKE ?").all(`%${search}%`, `%${search}%`);
+        else users = db.prepare("SELECT * FROM users").all();
+    } catch (e) {}
+    res.render("users", { users, search, page: 'users' });
 });
 
-// 3. 유저 데이터 직접 수정 (Override)
-app.post("/api/admin/user/update", async (req, res) => {
-  const { userId, stats } = req.body;
-  
-  try {
-    const response = await axios.post("http://localhost:3000/api/admin/user/set-stats", {
-      userId,
-      stats
-    });
-    res.json(response.data);
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.response?.data || err.message });
-  }
+app.get("/users/:userId", (req, res) => {
+    const { userId } = req.params;
+    try {
+        const user = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
+        if (!user) return res.status(404).render("error", { message: "유저를 찾을 수 없습니다." });
+        let inventory = [], collections = [];
+        try { inventory = db.prepare(`SELECT ui.*, id.name, id.itemType FROM user_inventory ui JOIN item_definitions id ON ui.itemCode = id.itemCode WHERE ui.userId = ? ORDER BY ui.slotIndex ASC`).all(userId); } catch (e) {}
+        try { collections = db.prepare(`SELECT cd.*, IFNULL(uc.isUnlocked, 0) as isUnlocked, uc.unlockedAt FROM collection_definitions cd LEFT JOIN user_collection uc ON cd.collectionCode = uc.collectionCode AND uc.userId = ?`).all(userId); } catch (e) {}
+        res.render("user-detail", { user, inventory, collections, page: 'users' });
+    } catch (err) { res.status(500).send(err.message); }
 });
 
-// 4. 학교 서버 웹훅 트리거
-app.post("/api/admin/school/trigger-update", async (req, res) => {
-  const { userId } = req.body;
-  try {
-    const response = await axios.post("http://localhost:4000/notify-update", { userId });
-    res.json({ success: true, data: response.data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.response?.data || err.message });
-  }
+app.post("/users/:userId/update", (req, res) => {
+    const { userId } = req.params;
+    const { studentId, academicCurrency, extraCurrency, idleCurrency, exp } = req.body;
+    try {
+        db.prepare(`UPDATE users SET studentId = ?, academicCurrency = ?, extraCurrency = ?, idleCurrency = ?, exp = ?, updatedAt = datetime('now') WHERE userId = ?`).run(studentId || null, academicCurrency, extraCurrency, idleCurrency, exp, userId);
+        res.redirect(`/users/${userId}?success=true`);
+    } catch (err) { res.status(500).send(err.message); }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Admin Dashboard API running on http://0.0.0.0:${PORT}`);
+// --- 학사 데이터 관리 ---
+
+app.get("/academic", (req, res) => {
+    try {
+        // 1. 학사 서버에서 학번 리스트 및 요약 정보 조회
+        const students = schoolDb.prepare(`
+            SELECT studentId, 
+            (SELECT COUNT(*) FROM attendance WHERE studentId = s.studentId AND status = '출석') as attCount,
+            (SELECT COUNT(*) FROM assignment WHERE studentId = s.studentId AND status = '제출') as asgnCount
+            FROM (SELECT DISTINCT studentId FROM attendance UNION SELECT DISTINCT studentId FROM assignment) s
+        `).all();
+
+        // 2. 게임 서버 DB에서 학번-유저 매핑 정보 가져오기
+        const mappings = db.prepare("SELECT userId, studentId FROM users WHERE studentId IS NOT NULL").all();
+        const mappingMap = {};
+        mappings.forEach(m => { mappingMap[m.studentId] = m.userId; });
+
+        // 3. 데이터 결합
+        const studentsWithUser = students.map(s => ({
+            ...s,
+            userId: mappingMap[s.studentId] || null
+        }));
+
+        res.render("academic", { students: studentsWithUser, page: 'academic' });
+    } catch (e) { 
+        console.error("[Admin] 학사 목록 조회 에러:", e.message);
+        res.render("academic", { students: [], page: 'academic' }); 
+    }
 });
+
+app.get("/academic/:studentId", (req, res) => {
+    const { studentId } = req.params;
+    try {
+        const attendance = schoolDb.prepare("SELECT * FROM attendance WHERE studentId = ? ORDER BY week ASC").all(studentId);
+        const assignments = schoolDb.prepare("SELECT * FROM assignment WHERE studentId = ? ORDER BY id ASC").all(studentId);
+        const mappedUser = db.prepare("SELECT userId FROM users WHERE studentId = ?").get(studentId);
+        res.render("academic-detail", { studentId, attendance, assignments, mappedUser, page: 'academic' });
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+app.post("/academic/:studentId/attendance/add", async (req, res) => {
+    const { studentId } = req.params; const { week, status } = req.body;
+    try {
+        schoolDb.prepare("INSERT INTO attendance (studentId, week, status) VALUES (?, ?, ?)").run(studentId, week, status);
+        await triggerRewardSyncByStudentId(studentId, 'attendance');
+        res.redirect(`/academic/${studentId}?success=added`);
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+app.post("/academic/:studentId/attendance/update", async (req, res) => {
+    const { studentId } = req.params; const { id, status } = req.body;
+    try {
+        schoolDb.prepare("UPDATE attendance SET status = ? WHERE id = ? AND studentId = ?").run(status, id, studentId);
+        if (status === '출석') await triggerRewardSyncByStudentId(studentId, 'attendance');
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/academic/:studentId/attendance/delete", async (req, res) => {
+    const { studentId } = req.params; const { id } = req.body;
+    try {
+        schoolDb.prepare("DELETE FROM attendance WHERE id = ? AND studentId = ?").run(id, studentId);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/academic/:studentId/assignment/add", async (req, res) => {
+    const { studentId } = req.params; const { name, status } = req.body;
+    try {
+        schoolDb.prepare("INSERT INTO assignment (studentId, name, status) VALUES (?, ?, ?)").run(studentId, name, status);
+        await triggerRewardSyncByStudentId(studentId, 'assignment');
+        res.redirect(`/academic/${studentId}?success=added`);
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+app.post("/academic/:studentId/assignment/update", async (req, res) => {
+    const { studentId } = req.params; const { id, status } = req.body;
+    try {
+        schoolDb.prepare("UPDATE assignment SET status = ? WHERE id = ? AND studentId = ?").run(status, id, studentId);
+        if (status === '제출') await triggerRewardSyncByStudentId(studentId, 'assignment');
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/academic/:studentId/assignment/delete", async (req, res) => {
+    const { studentId } = req.params; const { id } = req.body;
+    try {
+        schoolDb.prepare("DELETE FROM assignment WHERE id = ? AND studentId = ?").run(id, studentId);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/academic/add-student", (req, res) => {
+    const { studentId } = req.body;
+    try {
+        schoolDb.prepare("INSERT OR IGNORE INTO attendance (studentId, week, status) VALUES (?, 0, '결석')").run(studentId);
+        res.redirect(`/academic/${studentId}`);
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+// --- 인벤토리 및 도감 ---
+
+app.post("/users/:userId/inventory/add", (req, res) => {
+    const { userId } = req.params;
+    const { itemCode, slotIndex } = req.body;
+    try {
+        db.prepare("INSERT INTO user_inventory (userId, itemCode, slotIndex, isEquipped) VALUES (?, ?, ?, 0)").run(userId, itemCode, slotIndex);
+        res.redirect(`/users/${userId}?success=item_added`);
+    } catch (err) { res.status(500).send(err.message); }
+});
+
+app.post("/users/:userId/inventory/delete", (req, res) => {
+    const { userId } = req.params;
+    const { id } = req.body;
+    try {
+        db.prepare("DELETE FROM user_inventory WHERE id = ? AND userId = ?").run(id, userId);
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post("/users/:userId/collection/save", (req, res) => {
+    const { userId } = req.params;
+    const { unlockedCodes } = req.body;
+    try {
+        const transaction = db.transaction(() => {
+            db.prepare("DELETE FROM user_collection WHERE userId = ?").run(userId);
+            if (unlockedCodes && unlockedCodes.length > 0) {
+                const insert = db.prepare("INSERT INTO user_collection (userId, collectionCode, isUnlocked, unlockedAt) VALUES (?, ?, 1, datetime('now'))");
+                for (const code of unlockedCodes) insert.run(userId, code);
+            }
+        });
+        transaction();
+        res.json({ success: true });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// --- 로그 및 시스템 ---
+
+app.get("/logs", (req, res) => {
+    try {
+        const spendLogs = db.prepare("SELECT * FROM spend_log ORDER BY spentAt DESC LIMIT 100").all();
+        const playLogs = db.prepare("SELECT * FROM daily_play_log ORDER BY id DESC LIMIT 100").all();
+        const academicLogs = db.prepare("SELECT * FROM academic_change_log ORDER BY createdAt DESC LIMIT 100").all();
+        res.render("logs", { spendLogs, playLogs, academicLogs, page: 'logs' });
+    } catch (e) { res.render("logs", { spendLogs: [], playLogs: [], academicLogs: [], page: 'logs' }); }
+});
+
+app.get("/system", (req, res) => res.render("system", { page: 'system' }));
+
+app.post("/system/reset-db", (req, res) => {
+    const fs = require("fs");
+    try {
+        db.close(); schoolDb.close();
+        if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
+        if (fs.existsSync(schoolDbPath)) fs.unlinkSync(schoolDbPath);
+        setTimeout(() => process.exit(0), 1000);
+        res.json({ success: true, message: "DB 초기화 완료. 서버가 재시작됩니다." });
+    } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.listen(PORT, () => console.log(`Admin Dashboard running on http://localhost:${PORT}`));

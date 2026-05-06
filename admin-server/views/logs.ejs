@@ -1,0 +1,140 @@
+<%- include('partials/header', { page: 'logs' }) %>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0 text-gray-800">시스템 로그 모니터링</h1>
+</div>
+
+<!-- 로그 탭 메뉴 -->
+<ul class="nav nav-pills mb-4 shadow-sm p-2 bg-white rounded" id="logTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="spend-tab" data-bs-toggle="pill" data-bs-target="#spend" type="button" role="tab">
+        <i class="bi bi-currency-exchange me-2"></i>재화 소모 로그
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="play-tab" data-bs-toggle="pill" data-bs-target="#play" type="button" role="tab">
+        <i class="bi bi-controller me-2"></i>일일 플레이 로그
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="academic-tab" data-bs-toggle="pill" data-bs-target="#academic" type="button" role="tab">
+        <i class="bi bi-mortarboard me-2"></i>학사 보상 로그
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content" id="logTabsContent">
+  <!-- 1. 재화 소모 로그 -->
+  <div class="tab-pane fade show active" id="spend" role="tabpanel">
+    <div class="card shadow border-0">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-4">유저 ID</th>
+                            <th>타입</th>
+                            <th>금액</th>
+                            <th>사유</th>
+                            <th>일시</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% spendLogs.forEach(log => { %>
+                        <tr>
+                            <td class="ps-4 fw-bold"><%= log.userId %></td>
+                            <td><span class="badge bg-info text-dark text-uppercase"><%= log.currencyType %></span></td>
+                            <td class="text-danger fw-bold">-<%= log.amount.toLocaleString() %></td>
+                            <td><%= log.reason %></td>
+                            <td class="small text-muted"><%= log.spentAt %></td>
+                        </tr>
+                        <% }) %>
+                        <% if(spendLogs.length === 0) { %>
+                            <tr><td colspan="5" class="text-center py-5">기록된 소모 로그가 없습니다.</td></tr>
+                        <% } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+  </div>
+
+  <!-- 2. 일일 플레이 로그 -->
+  <div class="tab-pane fade" id="play" role="tabpanel">
+    <div class="card shadow border-0">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-4">유저 ID</th>
+                            <th>날짜</th>
+                            <th>EXP 획득</th>
+                            <th>재화 획득 (Acad/Extra/Idle)</th>
+                            <th>플레이(분)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% playLogs.forEach(log => { %>
+                        <tr>
+                            <td class="ps-4 fw-bold"><%= log.userId %></td>
+                            <td><%= log.date %></td>
+                            <td class="text-primary fw-bold">+<%= log.exp_gained %></td>
+                            <td>
+                                <span class="text-success"><%= log.academic_currency_gained %></span> /
+                                <span class="text-warning"><%= log.extra_currency_gained %></span> /
+                                <span class="text-muted"><%= log.idle_currency_gained %></span>
+                            </td>
+                            <td><%= log.play_minutes %>분</td>
+                        </tr>
+                        <% }) %>
+                        <% if(playLogs.length === 0) { %>
+                            <tr><td colspan="5" class="text-center py-5">기록된 플레이 로그가 없습니다.</td></tr>
+                        <% } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+  </div>
+
+  <!-- 3. 학사 보상 로그 -->
+  <div class="tab-pane fade" id="academic" role="tabpanel">
+    <div class="card shadow border-0">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th class="ps-4">유저 ID</th>
+                            <th>변경 타입</th>
+                            <th>상세 내용</th>
+                            <th>보상 (Extra/EXP)</th>
+                            <th>일시</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% academicLogs.forEach(log => { %>
+                        <tr>
+                            <td class="ps-4 fw-bold"><%= log.userId %></td>
+                            <td><span class="badge bg-secondary"><%= log.changeType %></span></td>
+                            <td><%= log.detail %></td>
+                            <td>
+                                <span class="text-warning">+<%= log.deltaExtra %></span> /
+                                <span class="text-primary">+<%= log.deltaExp %></span>
+                            </td>
+                            <td class="small text-muted"><%= log.createdAt %></td>
+                        </tr>
+                        <% }) %>
+                        <% if(academicLogs.length === 0) { %>
+                            <tr><td colspan="5" class="text-center py-5">기록된 학사 로그가 없습니다.</td></tr>
+                        <% } %>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+  </div>
+</div>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,165 @@
+<%- include('partials/header') %>
+
+<nav aria-label="breadcrumb" class="mb-4">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/users" class="text-decoration-none">유저 관리</a></li>
+    <li class="breadcrumb-item active"><%= user.userId %> 상세 정보</li>
+  </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0 text-gray-800">유저 프로필: <span class="text-primary"><%= user.userId %></span></h1>
+    <div id="saveAlert" class="alert alert-success py-1 px-3 mb-0 d-none">변경사항이 처리되었습니다!</div>
+</div>
+
+<div class="row">
+    <!-- 기본 정보 및 학번 연결 (여기가 학번 매핑 지점) -->
+    <div class="col-lg-4">
+        <div class="card shadow mb-4 border-0">
+            <div class="card-header py-3 d-flex align-items-center bg-dark text-white rounded-top">
+                <i class="bi bi-person-badge me-2"></i>
+                <h6 class="m-0 font-weight-bold">기본 정보 & 학번 연결</h6>
+            </div>
+            <div class="card-body">
+                <form action="/users/<%= user.userId %>/update" method="POST">
+                    <div class="mb-3 p-3 bg-light rounded border">
+                        <label class="form-label small fw-bold text-primary">STUDENT ID (학번 연결)</label>
+                        <div class="input-group">
+                            <input type="text" name="studentId" class="form-control fw-bold border-primary" value="<%= user.studentId || '' %>" placeholder="학번 입력">
+                            <% if(user.studentId) { %>
+                                <a href="/academic/<%= user.studentId %>" class="btn btn-outline-primary" title="학사 데이터 바로가기">
+                                    <i class="bi bi-box-arrow-in-right"></i>
+                                </a>
+                            <% } %>
+                        </div>
+                        <small class="text-muted mt-1 d-block">학번을 입력하면 해당 유저와 학사 데이터가 연결됩니다.</small>
+                    </div>
+                    <hr>
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold text-muted">ACADEMIC CURRENCY</label>
+                        <input type="number" name="academicCurrency" class="form-control form-control-sm" value="<%= user.academicCurrency %>">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold text-muted">EXTRA CURRENCY</label>
+                        <input type="number" name="extraCurrency" class="form-control form-control-sm" value="<%= user.extraCurrency %>">
+                    </div>
+                    <div class="mb-2">
+                        <label class="form-label small fw-bold text-muted">IDLE CURRENCY</label>
+                        <input type="number" name="idleCurrency" class="form-control form-control-sm" value="<%= user.idleCurrency %>">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">EXP</label>
+                        <input type="number" name="exp" class="form-control form-control-sm" value="<%= user.exp %>">
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100 fw-bold">수정 완료</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 아이템 및 도감 관리 -->
+    <div class="col-lg-8">
+        <div class="card shadow mb-4 border-0">
+            <div class="card-header p-0 bg-white">
+                <ul class="nav nav-tabs card-header-tabs m-0 border-bottom-0" id="userTab" role="tablist">
+                    <li class="nav-item">
+                        <button class="nav-link active px-4 py-3 fw-bold" id="inventory-tab" data-bs-toggle="tab" data-bs-target="#inventory" type="button" role="tab">
+                            <i class="bi bi-backpack me-2"></i>인벤토리
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link px-4 py-3 fw-bold text-success" id="collection-tab" data-bs-toggle="tab" data-bs-target="#collection" type="button" role="tab">
+                            <i class="bi bi-book me-2"></i>도감
+                        </button>
+                    </li>
+                </ul>
+            </div>
+            <div class="card-body p-0">
+                <div class="tab-content" id="userTabContent">
+                    <div class="tab-pane fade show active" id="inventory" role="tabpanel">
+                        <div class="p-3 bg-light border-bottom d-flex justify-content-between align-items-center">
+                            <h6 class="fw-bold mb-0 text-muted">보유 아이템 리스트</h6>
+                            <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addItemModal">
+                                <i class="bi bi-plus-lg me-1"></i>아이템 지급
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle mb-0">
+                                <thead class="table-light small">
+                                    <tr><th class="ps-4">SLOT</th><th>ITEM</th><th>TYPE</th><th>STATUS</th><th class="text-center">ACTION</th></tr>
+                                </thead>
+                                <tbody>
+                                    <% inventory.forEach(item => { %>
+                                    <tr id="inv-row-<%= item.id %>">
+                                        <td class="ps-4 fw-bold">#<%= item.slotIndex %></td>
+                                        <td><div class="fw-bold"><%= item.name %></div><div class="x-small text-muted font-monospace"><%= item.itemCode %></div></td>
+                                        <td><span class="badge bg-light text-dark border text-uppercase" style="font-size: 0.7rem;"><%= item.itemType %></span></td>
+                                        <td><% if(item.isEquipped) { %><span class="badge bg-success">장착중</span><% } else { %><span class="text-muted">-</span><% } %></td>
+                                        <td class="text-center">
+                                            <button class="btn btn-sm text-danger p-0" onclick="deleteItem('<%= item.id %>')"><i class="bi bi-trash"></i></button>
+                                        </td>
+                                    </tr>
+                                    <% }) %>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="tab-pane fade" id="collection" role="tabpanel">
+                        <div class="p-3 bg-light border-bottom d-flex justify-content-between align-items-center">
+                            <h6 class="fw-bold mb-0 text-muted">아이템 도감 일괄 관리</h6>
+                            <button class="btn btn-sm btn-success px-4 fw-bold" onclick="saveCollection()">저장</button>
+                        </div>
+                        <div class="p-3">
+                            <div class="row row-cols-1 row-cols-md-2 g-2">
+                                <% collections.forEach(col => { %>
+                                <div class="col">
+                                    <div class="border rounded p-2 d-flex align-items-center h-100 shadow-sm">
+                                        <div class="form-check me-2 ms-2">
+                                            <input class="form-check-input collection-checkbox" type="checkbox" value="<%= col.collectionCode %>" id="col-<%= col.collectionCode %>" <%= col.isUnlocked ? 'checked' : '' %>>
+                                        </div>
+                                        <label class="flex-grow-1 cursor-pointer mb-0" for="col-<%= col.collectionCode %>" style="font-size: 0.85rem;">
+                                            <div class="fw-bold text-dark"><%= col.name %></div>
+                                        </label>
+                                    </div>
+                                </div>
+                                <% }) %>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modals (Inventory Add) -->
+<div class="modal fade" id="addItemModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header"><h5>아이템 지급</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+      <form action="/users/<%= user.userId %>/inventory/add" method="POST">
+        <div class="modal-body">
+            <div class="mb-3"><label class="form-label">아이템 코드</label><input type="text" name="itemCode" class="form-control" required></div>
+            <div class="mb-3"><label class="form-label">슬롯 인덱스</label><input type="number" name="slotIndex" class="form-control" required></div>
+        </div>
+        <div class="modal-footer"><button type="submit" class="btn btn-primary">지급</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+function showMsg() { const a = document.getElementById('saveAlert'); a.classList.remove('d-none'); setTimeout(() => a.classList.add('d-none'), 2000); }
+async function deleteItem(id) {
+    if(!confirm('삭제하시겠습니까?')) return;
+    const res = await fetch(`/users/<%= user.userId %>/inventory/delete`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ id }) });
+    if(res.ok) { document.getElementById(`inv-row-${id}`).remove(); showMsg(); }
+}
+async function saveCollection() {
+    const unlockedCodes = Array.from(document.querySelectorAll('.collection-checkbox')).filter(cb => cb.checked).map(cb => cb.value);
+    const res = await fetch(`/users/<%= user.userId %>/collection/save`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ unlockedCodes }) });
+    if((await res.json()).success) showMsg();
+}
+</script>
+<style>.cursor-pointer { cursor: pointer; } .x-small { font-size: 0.7rem; }</style>
+<%- include('partials/footer') %>

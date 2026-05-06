@@ -1,0 +1,55 @@
+<%- include('partials/header', { page: 'system' }) %>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0 text-danger fw-bold"><i class="bi bi-exclamation-triangle-fill me-2"></i>시스템 관리 (위험구역)</h1>
+</div>
+
+<div class="row">
+    <div class="col-md-8">
+        <div class="card shadow border-left-danger mb-4" style="border-left: 5px solid #e74a3b;">
+            <div class="card-header py-3 bg-white">
+                <h6 class="m-0 font-weight-bold text-danger">데이터베이스 전체 초기화</h6>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">이 작업은 서버의 모든 데이터(유저 정보, 인벤토리, 학사 데이터, 도감 등)를 <strong>영구적으로 삭제</strong>합니다.</p>
+                <div class="alert alert-warning border-0 small">
+                    <i class="bi bi-info-circle me-1"></i> 
+                    삭제 후 서버가 자동으로 재시작되며, 비어있는 깨끗한 데이터베이스가 다시 생성됩니다. 스키마 에러가 지속될 때 최후의 수단으로 사용하세요.
+                </div>
+                
+                <div class="mt-4">
+                    <label class="form-label fw-bold">확인을 위해 "RESET"을 입력하세요.</label>
+                    <input type="text" id="confirmText" class="form-control mb-3" placeholder="RESET">
+                    <button class="btn btn-danger px-4 py-2 fw-bold" onclick="resetDatabase()">
+                        <i class="bi bi-trash3-fill me-2"></i>DB 싹 다 초기화하기
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+async function resetDatabase() {
+    const confirmInput = document.getElementById('confirmText').value;
+    if (confirmInput !== 'RESET') {
+        alert('확인 문구가 일치하지 않습니다.');
+        return;
+    }
+
+    if (!confirm('정말로 모든 데이터를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
+
+    try {
+        const res = await fetch('/system/reset-db', { method: 'POST' });
+        const result = await res.json();
+        if (result.success) {
+            alert(result.message);
+            window.location.href = '/';
+        }
+    } catch (err) {
+        alert('초기화 중 오류 발생: ' + err.message);
+    }
+}
+</script>
+
+<%- include('partials/footer') %>

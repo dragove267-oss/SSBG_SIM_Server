@@ -15,6 +15,7 @@ const INVENTORY_SLOT_COUNT = 30;
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     userId           TEXT PRIMARY KEY,
+    studentId        TEXT UNIQUE DEFAULT NULL,
     academicCurrency INTEGER DEFAULT 0,
     extraCurrency    INTEGER DEFAULT 0,
     idleCurrency     INTEGER DEFAULT 0,
@@ -22,6 +23,13 @@ db.exec(`
     updatedAt        TEXT DEFAULT (datetime('now'))
   )
 `);
+
+// 기존 유저들을 위해 studentId 컬럼이 없을 경우 추가 (실패해도 무시)
+try {
+  db.exec("ALTER TABLE users ADD COLUMN studentId TEXT UNIQUE DEFAULT NULL");
+} catch (e) {
+  // 이미 컬럼이 있는 경우 에러 무시
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS login_snapshots (
@@ -130,6 +138,10 @@ db.exec(`
     createdAt    TEXT DEFAULT (datetime('now'))
   )
 `);
+
+// item_definitions 컬럼 마이그레이션
+try { db.exec("ALTER TABLE item_definitions ADD COLUMN itemType TEXT NOT NULL DEFAULT 'relic'"); } catch (e) {}
+try { db.exec("ALTER TABLE item_definitions ADD COLUMN cosmeticSlot TEXT"); } catch (e) {}
 
 // 옵션 코드 (유물/소모성 아이템 효과)
 // valueType: 'multiplier'(배율) | 'flat'(고정값) | 'chance'(확률)

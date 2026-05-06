@@ -1,0 +1,61 @@
+<%- include('partials/header') %>
+
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center mb-4">
+    <h1 class="h3 mb-0 text-gray-800">대시보드 요약</h1>
+</div>
+
+<div class="row">
+    <!-- 유저 카드 -->
+    <div class="col-xl-3 col-md-6 mb-4">
+        <div class="card border-left-primary h-100 py-2" style="border-left: 4px solid #4e73df;">
+            <div class="card-body">
+                <div class="row no-gutters align-items-center">
+                    <div class="col mr-2">
+                        <div class="text-xs font-weight-bold text-primary text-uppercase mb-1">총 등록 유저</div>
+                        <div class="h5 mb-0 font-weight-bold text-gray-800"><%= userCount %> 명</div>
+                    </div>
+                    <div class="col-auto">
+                        <i class="bi bi-person-check fs-2 text-gray-300"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card shadow">
+    <div class="card-header py-3">
+        <h6 class="m-0 font-weight-bold text-primary">최근 재화 소모 로그</h6>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle" id="dataTable" width="100%" cellspacing="0">
+                <thead class="table-light">
+                    <tr>
+                        <th>유저 ID</th>
+                        <th>재화 타입</th>
+                        <th>금액</th>
+                        <th>사유</th>
+                        <th>일시</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <% recentLogs.forEach(log => { %>
+                    <tr>
+                        <td class="fw-bold"><%= log.userId %></td>
+                        <td><span class="badge bg-info text-dark"><%= log.currencyType %></span></td>
+                        <td class="text-danger fw-bold">-<%= log.amount.toLocaleString() %></td>
+                        <td><%= log.reason %></td>
+                        <td class="small text-muted"><%= log.spentAt %></td>
+                    </tr>
+                    <% }) %>
+                    <% if(recentLogs.length === 0) { %>
+                        <tr><td colspan="5" class="text-center py-4 text-muted">최근 로그가 없습니다.</td></tr>
+                    <% } %>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<%- include('partials/footer') %>

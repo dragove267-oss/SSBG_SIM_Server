@@ -197,14 +197,18 @@ router.post("/daily-reset", async (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "userId required" });
   try {
+    const user = getOrCreateUser(userId);
+    if (!user.studentId) {
+        return res.json({ success: false, message: "No studentId linked to this user" });
+    }
+
     if (isResetDoneToday(userId)) {
-      const user = getOrCreateUser(userId);
       return res.json({ success: false, message: "Already reset today", user, Data: user,
         resetDoneToday: true, secondsUntilReset: getSecondsUntilReset() });
     }
 
-    const attendanceRes = await axios.get(`http://localhost:4000/attendance?userId=${userId}`);
-    const assignmentRes = await axios.get(`http://localhost:4000/assignment?userId=${userId}`);
+    const attendanceRes = await axios.get(`http://localhost:4000/attendance?studentId=${user.studentId}`);
+    const assignmentRes = await axios.get(`http://localhost:4000/assignment?studentId=${user.studentId}`);
     const attendanceList = attendanceRes.data.attendance;
     const assignmentList = assignmentRes.data.assignment;
 

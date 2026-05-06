@@ -1,0 +1,171 @@
+<%- include('partials/header', { page: 'academic' }) %>
+
+<nav aria-label="breadcrumb" class="mb-4">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/academic">학사 데이터 관리</a></li>
+    <li class="breadcrumb-item active">학번: <%= studentId %></li>
+  </ol>
+</nav>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0 text-gray-800">학사 데이터 수정: <span class="text-primary"><%= studentId %></span></h1>
+    <% if(mappedUser) { %>
+        <span class="badge bg-success p-2">연결된 게임계정: <%= mappedUser.userId %></span>
+    <% } else { %>
+        <span class="badge bg-warning text-dark p-2">게임계정 미연결</span>
+    <% } %>
+</div>
+
+<div id="saveAlert" class="alert alert-success py-1 px-3 mb-3 d-none">변경사항이 저장되었습니다!</div>
+
+<div class="row">
+    <!-- 출석 관리 -->
+    <div class="col-lg-6">
+        <div class="card shadow mb-4 border-0">
+            <div class="card-header py-3 bg-light d-flex justify-content-between align-items-center">
+                <h6 class="m-0 font-weight-bold text-primary"><i class="bi bi-calendar-check me-2"></i>출석 기록</h6>
+                <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addAttModal">추가</button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light small">
+                            <tr><th>주차</th><th>상태</th><th class="text-end">액션</th></tr>
+                        </thead>
+                        <tbody>
+                            <% attendance.filter(a => a.week > 0).forEach(a => { %>
+                            <tr id="att-row-<%= a.id %>">
+                                <td class="fw-bold"><%= a.week %>주차</td>
+                                <td>
+                                    <select class="form-select form-select-sm w-auto" onchange="updateAtt('<%= a.id %>', this.value)">
+                                        <option value="출석" <%= a.status === '출석' ? 'selected' : '' %>>출석</option>
+                                        <option value="지각" <%= a.status === '지각' ? 'selected' : '' %>>지각</option>
+                                        <option value="결석" <%= a.status === '결석' ? 'selected' : '' %>>결석</option>
+                                    </select>
+                                </td>
+                                <td class="text-end px-3">
+                                    <button class="btn btn-sm text-danger p-0" onclick="deleteAtt('<%= a.id %>')"><i class="bi bi-trash"></i></button>
+                                </td>
+                            </tr>
+                            <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 과제 관리 -->
+    <div class="col-lg-6">
+        <div class="card shadow mb-4 border-0">
+            <div class="card-header py-3 bg-light d-flex justify-content-between align-items-center">
+                <h6 class="m-0 font-weight-bold text-success"><i class="bi bi-file-earmark-text me-2"></i>과제 현황</h6>
+                <button class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#addAsgnModal">추가</button>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light small">
+                            <tr><th>과제 이름</th><th>상태</th><th class="text-end">액션</th></tr>
+                        </thead>
+                        <tbody>
+                            <% assignments.forEach(a => { %>
+                            <tr id="asgn-row-<%= a.id %>">
+                                <td><%= a.name %></td>
+                                <td>
+                                    <select class="form-select form-select-sm w-auto" onchange="updateAsgn('<%= a.id %>', this.value)">
+                                        <option value="제출" <%= a.status === '제출' ? 'selected' : '' %>>제출</option>
+                                        <option value="미제출" <%= a.status === '미제출' ? 'selected' : '' %>>미제출</option>
+                                    </select>
+                                </td>
+                                <td class="text-end px-3">
+                                    <button class="btn btn-sm text-danger p-0" onclick="deleteAsgn('<%= a.id %>')"><i class="bi bi-trash"></i></button>
+                                </td>
+                            </tr>
+                            <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modals -->
+<div class="modal fade" id="addAttModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5>출석 기록 추가</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+            <form action="/academic/<%= studentId %>/attendance/add" method="POST">
+                <div class="modal-body">
+                    <div class="mb-3"><label class="form-label">주차</label><input type="number" name="week" class="form-control" required></div>
+                    <div class="mb-3"><label class="form-label">상태</label><select name="status" class="form-select"><option value="출석">출석</option><option value="지각">지각</option><option value="결석">결석</option></select></div>
+                </div>
+                <div class="modal-footer"><button type="submit" class="btn btn-primary">추가</button></div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="addAsgnModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header"><h5>과제 항목 추가</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+            <form action="/academic/<%= studentId %>/assignment/add" method="POST">
+                <div class="modal-body">
+                    <div class="mb-3"><label class="form-label">과제 이름</label><input type="text" name="name" class="form-control" required></div>
+                    <div class="mb-3"><label class="form-label">상태</label><select name="status" class="form-select"><option value="제출">제출</option><option value="미제출">미제출</option></select></div>
+                </div>
+                <div class="modal-footer"><button type="submit" class="btn btn-success">추가</button></div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function showMsg() { 
+    const alert = document.getElementById('saveAlert');
+    alert.classList.remove('d-none');
+    setTimeout(() => alert.classList.add('d-none'), 2000);
+}
+
+async function updateAtt(id, status) {
+    const res = await fetch(`/academic/<%= studentId %>/attendance/update`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ id, status })
+    });
+    if(res.ok) showMsg();
+}
+
+async function deleteAtt(id) {
+    if(!confirm('삭제하시겠습니까?')) return;
+    const res = await fetch(`/academic/<%= studentId %>/attendance/delete`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ id })
+    });
+    if(res.ok) { document.getElementById(`att-row-${id}`).remove(); showMsg(); }
+}
+
+async function updateAsgn(id, status) {
+    const res = await fetch(`/academic/<%= studentId %>/assignment/update`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ id, status })
+    });
+    if(res.ok) showMsg();
+}
+
+async function deleteAsgn(id) {
+    if(!confirm('삭제하시겠습니까?')) return;
+    const res = await fetch(`/academic/<%= studentId %>/assignment/delete`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ id })
+    });
+    if(res.ok) { document.getElementById(`asgn-row-${id}`).remove(); showMsg(); }
+}
+</script>
+
+<%- include('partials/footer') %>

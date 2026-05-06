@@ -1,28 +1,32 @@
 const express = require("express");
 const router = express.Router();
+const db = require("../database/db");
 const {
-  getAttendance,
-  getAssignment,
   calculateReward,
   pushToGameServer
 } = require("../services/schoolService");
-const data = require("../data/mockData.json");
 
-// 출석 조회
+// 출석 조회 (학번 기준)
 router.get("/attendance", (req, res) => {
-  const { userId } = req.query;
-  res.json({ userId, attendance: data.attendance });
+  const { studentId } = req.query;
+  if (!studentId) return res.status(400).json({ error: "studentId required" });
+
+  const attendance = db.prepare("SELECT week, status FROM attendance WHERE studentId = ? ORDER BY week ASC").all(studentId);
+  res.json({ studentId, attendance });
 });
 
-// 과제 조회
+// 과제 조회 (학번 기준)
 router.get("/assignment", (req, res) => {
-  const { userId } = req.query;
-  res.json({ userId, assignment: data.assignment });
+  const { studentId } = req.query;
+  if (!studentId) return res.status(400).json({ error: "studentId required" });
+
+  const assignment = db.prepare("SELECT name, status FROM assignment WHERE studentId = ? ORDER BY id ASC").all(studentId);
+  res.json({ studentId, assignment });
 });
 
 // 학교 데이터 변동 시 게임서버로 푸시
 router.post("/notify-update", async (req, res) => {
-  const { userId } = req.body;
+  const { studentId, userId } = req.body; // 매핑을 위해 둘 다 받음
 
   if (!userId) {
     return res.status(400).json({ error: "userId required" });
