@@ -82,7 +82,7 @@ function connectDBs() {
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 studentId  TEXT NOT NULL,
                 week       INTEGER NOT NULL,
-                status     TEXT NOT NULL CHECK(status IN ('출석', '지각', '결석')),
+                status     TEXT NOT NULL CHECK(status IN ('출석', '지각', '조퇴', '결석', '미제출')),
                 recordedAt TEXT DEFAULT (datetime('now')),
                 UNIQUE(studentId, week)
             )

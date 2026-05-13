@@ -16,6 +16,7 @@ const INVENTORY_PAGE_SIZE  = 20;  // 한 페이지당 슬롯 수 (5x4)
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     userId           TEXT PRIMARY KEY,
+    studentId        TEXT UNIQUE DEFAULT NULL,
     academicCurrency INTEGER DEFAULT 0,
     extraCurrency    INTEGER DEFAULT 0,
     idleCurrency     INTEGER DEFAULT 0,
@@ -84,7 +85,7 @@ db.exec(`
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     userId     TEXT NOT NULL,
     week       INTEGER NOT NULL,
-    status     TEXT NOT NULL CHECK(status IN ('출석', '지각', '결석')),
+    status     TEXT NOT NULL CHECK(status IN ('출석', '지각', '조퇴', '결석', '미제출')),
     recordedAt TEXT DEFAULT (datetime('now')),
     UNIQUE(userId, week)
   )
@@ -116,7 +117,7 @@ db.exec(`
 
 // ================================================================
 // 아이템 정의 테이블
-// itemType: 'Hat' | 'Bag' | 'Clothes' | 'Theme' | 'Friend' | 'Consumable'
+// itemType: 'Hat' | 'Bag' | 'Clothes' | 'Theme' | 'Friend' | 'Consumable' | 'relic'
 // ================================================================
 
 db.exec(`
@@ -124,8 +125,9 @@ db.exec(`
     itemCode    TEXT PRIMARY KEY,
     name        TEXT NOT NULL,
     description TEXT DEFAULT '',
-    itemType    TEXT NOT NULL DEFAULT 'Consumable'
-                CHECK(itemType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable')),
+    itemType    TEXT NOT NULL DEFAULT 'relic'
+                CHECK(itemType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'relic')),
+    cosmeticSlot TEXT,
     createdAt   TEXT DEFAULT (datetime('now'))
   )
 `);

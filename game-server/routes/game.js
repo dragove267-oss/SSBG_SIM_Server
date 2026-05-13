@@ -9,7 +9,7 @@ const REWARD_CONFIG = {
 const INVENTORY_SLOT_COUNT = 80;
 
 // 유효한 itemType 목록
-const VALID_ITEM_TYPES = ['Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable'];
+const VALID_ITEM_TYPES = ['Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'relic'];
 
 // ================================================================
 // 유저
@@ -19,8 +19,8 @@ function getOrCreateUser(userId) {
   let user = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
   if (!user) {
     db.prepare(
-      `INSERT INTO users (userId, academicCurrency, extraCurrency, idleCurrency, exp)
-       VALUES (?, 0, 0, 0, 0)`
+      `INSERT INTO users (userId, studentId, academicCurrency, extraCurrency, idleCurrency, exp)
+       VALUES (?, NULL, 0, 0, 0, 0)`
     ).run(userId);
     user = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
   }
@@ -303,7 +303,7 @@ function getInventory(userId) {
   return db.prepare(`
     SELECT
       ui.slotIndex, ui.isEquipped, ui.obtainedAt,
-      id.itemCode, id.name, id.description, id.itemType
+      id.itemCode, id.name, id.description, id.itemType, id.cosmeticSlot
     FROM user_inventory ui
     JOIN item_definitions id ON ui.itemCode = id.itemCode
     WHERE ui.userId = ?
@@ -312,14 +312,14 @@ function getInventory(userId) {
 }
 
 // 탭별 조회 (itemType 기준 - 슬롯 구조와 독립)
-// itemType: null = 전체 / 'Hat' / 'Bag' / 'Clothes' / 'Theme' / 'Friend' / 'Consumable'
+// itemType: null = 전체 / 'Hat' / 'Bag' / 'Clothes' / 'Theme' / 'Friend' / 'Consumable' / 'relic'
 function getInventoryByType(userId, itemType) {
   if (!itemType) return getInventory(userId);
 
   return db.prepare(`
     SELECT
       ui.slotIndex, ui.isEquipped, ui.obtainedAt,
-      id.itemCode, id.name, id.description, id.itemType
+      id.itemCode, id.name, id.description, id.itemType, id.cosmeticSlot
     FROM user_inventory ui
     JOIN item_definitions id ON ui.itemCode = id.itemCode
     WHERE ui.userId = ? AND id.itemType = ?
@@ -330,7 +330,7 @@ function getInventoryByType(userId, itemType) {
 // 장착 중인 아이템만 조회
 function getEquippedItems(userId) {
   return db.prepare(`
-    SELECT ui.slotIndex, id.itemCode, id.name, id.itemType
+    SELECT ui.slotIndex, id.itemCode, id.name, id.itemType, id.cosmeticSlot
     FROM user_inventory ui
     JOIN item_definitions id ON ui.itemCode = id.itemCode
     WHERE ui.userId = ? AND ui.isEquipped = 1
