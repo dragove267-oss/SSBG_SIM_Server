@@ -19,19 +19,87 @@ function connectDBs() {
         db = new Database(dbPath);
         schoolDb = new Database(schoolDbPath);
         
-        // 기본 테이블 생성 (다른 서버의 db.js와 구조 동기화)
-        db.exec(`CREATE TABLE IF NOT EXISTS users (userId TEXT PRIMARY KEY, academicCurrency INTEGER DEFAULT 0, extraCurrency INTEGER DEFAULT 0, idleCurrency INTEGER DEFAULT 0, exp INTEGER DEFAULT 0, updatedAt TEXT DEFAULT (datetime('now')))`);
-        db.exec(`CREATE TABLE IF NOT EXISTS item_definitions (itemCode TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '', createdAt TEXT DEFAULT (datetime('now')))`);
+        // 1. 게임 서버용 기본 테이블 및 컬럼 생성 (studentId 포함)
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS users (
+                userId           TEXT PRIMARY KEY,
+                studentId        TEXT UNIQUE DEFAULT NULL,
+                academicCurrency INTEGER DEFAULT 0,
+                extraCurrency    INTEGER DEFAULT 0,
+                idleCurrency     INTEGER DEFAULT 0,
+                exp              INTEGER DEFAULT 0,
+                updatedAt        TEXT DEFAULT (datetime('now'))
+            )
+        `);
         
-        schoolDb.exec(`CREATE TABLE IF NOT EXISTS attendance (id INTEGER PRIMARY KEY AUTOINCREMENT, studentId TEXT NOT NULL, week INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('출석', '지각', '결석')), recordedAt TEXT DEFAULT (datetime('now')), UNIQUE(studentId, week))`);
-        schoolDb.exec(`CREATE TABLE IF NOT EXISTS assignment (id INTEGER PRIMARY KEY AUTOINCREMENT, studentId TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('제출', '미제출')), recordedAt TEXT DEFAULT (datetime('now')), UNIQUE(studentId, name))`);
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS item_definitions (
+                itemCode    TEXT PRIMARY KEY,
+                name        TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                itemType    TEXT NOT NULL DEFAULT 'relic',
+                cosmeticSlot TEXT,
+                createdAt   TEXT DEFAULT (datetime('now'))
+            )
+        `);
 
-        // 필수 컬럼 추가 작업
-        try { db.exec("ALTER TABLE users ADD COLUMN studentId TEXT UNIQUE DEFAULT NULL"); } catch(e) {}
-        try { db.exec("ALTER TABLE item_definitions ADD COLUMN itemType TEXT NOT NULL DEFAULT 'relic'"); } catch(e) {}
-        try { db.exec("ALTER TABLE item_definitions ADD COLUMN cosmeticSlot TEXT"); } catch(e) {}
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS item_options (
+                optionCode   TEXT PRIMARY KEY,
+                name         TEXT NOT NULL,
+                description  TEXT DEFAULT '',
+                valueType    TEXT NOT NULL DEFAULT 'multiplier',
+                defaultValue REAL NOT NULL DEFAULT 1.0,
+                createdAt    TEXT DEFAULT (datetime('now'))
+            )
+        `);
+
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS spend_log (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                userId       TEXT NOT NULL,
+                currencyType TEXT NOT NULL,
+                amount       INTEGER NOT NULL,
+                reason       TEXT DEFAULT '',
+                spentAt      TEXT DEFAULT (datetime('now'))
+            )
+        `);
+
+        // 기초 데이터 (아이템 옵션) 삽입
+        db.prepare(`
+            INSERT OR IGNORE INTO item_options (optionCode, name, description, valueType, defaultValue)
+            VALUES
+                ('CURRENCY_EXTRA_RATE',     'Extra 재화 배율',       'Extra 재화 획득량 배율 증가',    'multiplier', 1.2),
+                ('CURRENCY_EXP_RATE',       'EXP 배율',              'EXP 획득량 배율 증가',           'multiplier', 1.2),
+                ('CURRENCY_ACADEMIC_RATE',  'Academic 재화 배율',    'Academic 재화 획득량 배율 증가', 'multiplier', 1.2),
+                ('REWARD_ATTENDANCE_BONUS', '출석 보상 증가',        '출석 시 보상 추가 지급',         'flat',       50.0),
+                ('REWARD_ASSIGNMENT_BONUS', '과제 보상 증가',        '과제 제출 시 보상 추가 지급',    'flat',       30.0)
+        `).run();
+
+        // 2. 학사 서버용 테이블 생성
+        schoolDb.exec(`
+            CREATE TABLE IF NOT EXISTS attendance (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                studentId  TEXT NOT NULL,
+                week       INTEGER NOT NULL,
+                status     TEXT NOT NULL CHECK(status IN ('출석', '지각', '결석')),
+                recordedAt TEXT DEFAULT (datetime('now')),
+                UNIQUE(studentId, week)
+            )
+        `);
         
-        console.log("[Admin] Databases connected and initialized.");
+        schoolDb.exec(`
+            CREATE TABLE IF NOT EXISTS assignment (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                studentId  TEXT NOT NULL,
+                name       TEXT NOT NULL,
+                status     TEXT NOT NULL CHECK(status IN ('제출', '미제출')),
+                recordedAt TEXT DEFAULT (datetime('now')),
+                UNIQUE(studentId, name)
+            )
+        `);
+        
+        console.log("[Admin] Databases connected and fully initialized with schema.");
     } catch (err) { console.error("[Admin] DB 연결/초기화 실패:", err.message); }
 }
 connectDBs();
