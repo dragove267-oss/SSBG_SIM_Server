@@ -18,10 +18,21 @@ function connectDBs() {
     try {
         db = new Database(dbPath);
         schoolDb = new Database(schoolDbPath);
+        
+        // 기본 테이블 생성 (다른 서버의 db.js와 구조 동기화)
+        db.exec(`CREATE TABLE IF NOT EXISTS users (userId TEXT PRIMARY KEY, academicCurrency INTEGER DEFAULT 0, extraCurrency INTEGER DEFAULT 0, idleCurrency INTEGER DEFAULT 0, exp INTEGER DEFAULT 0, updatedAt TEXT DEFAULT (datetime('now')))`);
+        db.exec(`CREATE TABLE IF NOT EXISTS item_definitions (itemCode TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '', createdAt TEXT DEFAULT (datetime('now')))`);
+        
+        schoolDb.exec(`CREATE TABLE IF NOT EXISTS attendance (id INTEGER PRIMARY KEY AUTOINCREMENT, studentId TEXT NOT NULL, week INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('출석', '지각', '결석')), recordedAt TEXT DEFAULT (datetime('now')), UNIQUE(studentId, week))`);
+        schoolDb.exec(`CREATE TABLE IF NOT EXISTS assignment (id INTEGER PRIMARY KEY AUTOINCREMENT, studentId TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('제출', '미제출')), recordedAt TEXT DEFAULT (datetime('now')), UNIQUE(studentId, name))`);
+
+        // 필수 컬럼 추가 작업
         try { db.exec("ALTER TABLE users ADD COLUMN studentId TEXT UNIQUE DEFAULT NULL"); } catch(e) {}
         try { db.exec("ALTER TABLE item_definitions ADD COLUMN itemType TEXT NOT NULL DEFAULT 'relic'"); } catch(e) {}
         try { db.exec("ALTER TABLE item_definitions ADD COLUMN cosmeticSlot TEXT"); } catch(e) {}
-    } catch (err) { console.error("[Admin] DB 연결 실패:", err.message); }
+        
+        console.log("[Admin] Databases connected and initialized.");
+    } catch (err) { console.error("[Admin] DB 연결/초기화 실패:", err.message); }
 }
 connectDBs();
 
