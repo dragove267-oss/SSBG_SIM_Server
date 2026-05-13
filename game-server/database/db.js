@@ -4,9 +4,10 @@ const path = require("path");
 const db = new Database(path.join(__dirname, "game.db"));
 
 // ================================================================
-// 상수 (슬롯 개수 변경 시 여기만 수정)
+// 상수
 // ================================================================
-const INVENTORY_SLOT_COUNT = 30;
+const INVENTORY_SLOT_COUNT = 80;  // 가로5 x 세로4 x 4페이지
+const INVENTORY_PAGE_SIZE  = 20;  // 한 페이지당 슬롯 수 (5x4)
 
 // ================================================================
 // 기존 테이블
@@ -15,7 +16,6 @@ const INVENTORY_SLOT_COUNT = 30;
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     userId           TEXT PRIMARY KEY,
-    studentId        TEXT UNIQUE DEFAULT NULL,
     academicCurrency INTEGER DEFAULT 0,
     extraCurrency    INTEGER DEFAULT 0,
     idleCurrency     INTEGER DEFAULT 0,
@@ -23,13 +23,6 @@ db.exec(`
     updatedAt        TEXT DEFAULT (datetime('now'))
   )
 `);
-
-// 기존 유저들을 위해 studentId 컬럼이 없을 경우 추가 (실패해도 무시)
-try {
-  db.exec("ALTER TABLE users ADD COLUMN studentId TEXT UNIQUE DEFAULT NULL");
-} catch (e) {
-  // 이미 컬럼이 있는 경우 에러 무시
-}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS login_snapshots (
@@ -123,27 +116,21 @@ db.exec(`
 
 // ================================================================
 // 아이템 정의 테이블
-// itemType: 'cosmetic'(치장) | 'relic'(유물) | 'consumable'(소모성)
-// cosmeticSlot: 'hat' | 'shirt' | 'shoes' | null (치장 아이템만 사용)
+// itemType: 'Hat' | 'Bag' | 'Clothes' | 'Theme' | 'Friend' | 'Consumable'
 // ================================================================
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS item_definitions (
-    itemCode     TEXT PRIMARY KEY,
-    name         TEXT NOT NULL,
-    description  TEXT DEFAULT '',
-    itemType     TEXT NOT NULL DEFAULT 'relic'
-                 CHECK(itemType IN ('cosmetic', 'relic', 'consumable')),
-    cosmeticSlot TEXT CHECK(cosmeticSlot IN ('hat', 'shirt', 'shoes') OR cosmeticSlot IS NULL),
-    createdAt    TEXT DEFAULT (datetime('now'))
+    itemCode    TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    itemType    TEXT NOT NULL DEFAULT 'Consumable'
+                CHECK(itemType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable')),
+    createdAt   TEXT DEFAULT (datetime('now'))
   )
 `);
 
-// item_definitions 컬럼 마이그레이션
-try { db.exec("ALTER TABLE item_definitions ADD COLUMN itemType TEXT NOT NULL DEFAULT 'relic'"); } catch (e) {}
-try { db.exec("ALTER TABLE item_definitions ADD COLUMN cosmeticSlot TEXT"); } catch (e) {}
-
-// 옵션 코드 (유물/소모성 아이템 효과)
+// 옵션 코드
 // valueType: 'multiplier'(배율) | 'flat'(고정값) | 'chance'(확률)
 db.exec(`
   CREATE TABLE IF NOT EXISTS item_options (
@@ -157,7 +144,7 @@ db.exec(`
   )
 `);
 
-// 아이템↔옵션 연결 (아이템 하나에 옵션 여러 개 가능)
+// 아이템↔옵션 연결 (옵션 여러 개 가능)
 db.exec(`
   CREATE TABLE IF NOT EXISTS item_definition_options (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -170,8 +157,9 @@ db.exec(`
 
 // ================================================================
 // 가방 (user_inventory)
-// slotIndex 0~29 (총 30칸)
-// isEquipped: 0=미장착, 1=장착 (치장 아이템만 사용)
+// slotIndex: 0~79 (총 80칸, 페이지당 20칸)
+// isEquipped: 0=미장착, 1=장착 (Hat/Bag/Clothes/Theme/Friend 사용)
+//   같은 itemType은 1개만 장착 가능 (서비스 로직에서 체크)
 // ================================================================
 
 db.exec(`
@@ -189,15 +177,15 @@ db.exec(`
 
 // ================================================================
 // 도감 테이블
-// collectionType: 'cosmetic'(치장) | 'relic'(유물)
-// isUnlocked: 0=미해금, 1=해금
+// collectionType: 'Hat' | 'Bag' | 'Clothes' | 'Theme' | 'Friend' | 'Consumable'
 // ================================================================
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS collection_definitions (
     collectionCode TEXT PRIMARY KEY,
     itemCode       TEXT NOT NULL REFERENCES item_definitions(itemCode),
-    collectionType TEXT NOT NULL CHECK(collectionType IN ('cosmetic', 'relic')),
+    collectionType TEXT NOT NULL
+                   CHECK(collectionType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable')),
     name           TEXT NOT NULL,
     description    TEXT DEFAULT '',
     createdAt      TEXT DEFAULT (datetime('now'))
@@ -234,3 +222,4 @@ db.prepare(`
 
 module.exports = db;
 module.exports.INVENTORY_SLOT_COUNT = INVENTORY_SLOT_COUNT;
+module.exports.INVENTORY_PAGE_SIZE  = INVENTORY_PAGE_SIZE;

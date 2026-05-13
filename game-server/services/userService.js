@@ -1,21 +1,15 @@
 const db = require("../database/db");
 
-// 재화 지급 설정
 const REWARD_CONFIG = {
-  attendance: {
-    extraCurrency: 100,
-    exp: 30,
-  },
-  attendance_late: {
-    exp: 15,
-  },
-  assignment: {
-    exp: 50,
-  }
+  attendance: { extraCurrency: 100, exp: 30 },
+  attendance_late: { exp: 15 },
+  assignment: { exp: 50 }
 };
 
-// 슬롯 총 개수 (db.js 상수와 동기화)
-const INVENTORY_SLOT_COUNT = 30;
+const INVENTORY_SLOT_COUNT = 80;
+
+// 유효한 itemType 목록
+const VALID_ITEM_TYPES = ['Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable'];
 
 // ================================================================
 // 유저
@@ -209,7 +203,6 @@ function gainCurrency(userId, currencyType, amount) {
     return { success: false, message: "Invalid currency type" };
 
   getOrCreateUser(userId);
-
   const finalAmount = applyOptionToAmount(userId, currencyType, amount);
 
   db.prepare(`
@@ -240,7 +233,7 @@ function addItemToInventory(userId, itemCode) {
   ).get(userId, itemCode);
   if (already) return { success: false, message: "Item already owned" };
 
-  // 타입 관계없이 전체 슬롯에서 빈 슬롯 순서대로 배치
+  // 전체 슬롯에서 빈 자리 순서대로 배치
   const usedSlots = db.prepare(
     "SELECT slotIndex FROM user_inventory WHERE userId = ?"
   ).all(userId).map(r => r.slotIndex);
@@ -261,6 +254,7 @@ function addItemToInventory(userId, itemCode) {
   return { success: true, slotIndex: emptySlot, item: itemDef };
 }
 
+// 장착 (같은 itemType은 1개만 장착)
 function equipItem(userId, itemCode) {
   const invItem = db.prepare(
     "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
@@ -268,24 +262,26 @@ function equipItem(userId, itemCode) {
   if (!invItem) return { success: false, message: "Item not in inventory" };
 
   const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
-  if (itemDef.itemType !== "cosmetic")
-    return { success: false, message: "Only cosmetic items can be equipped" };
 
-  // 같은 cosmeticSlot 기존 장착 해제
+  // Consumable은 장착 불가
+  if (itemDef.itemType === "Consumable")
+    return { success: false, message: "Consumable items cannot be equipped" };
+
+  // 같은 itemType 기존 장착 해제
   db.prepare(`
     UPDATE user_inventory SET isEquipped = 0
     WHERE userId = ? AND isEquipped = 1
       AND itemCode IN (
-        SELECT itemCode FROM item_definitions WHERE cosmeticSlot = ?
+        SELECT itemCode FROM item_definitions WHERE itemType = ?
       )
-  `).run(userId, itemDef.cosmeticSlot);
+  `).run(userId, itemDef.itemType);
 
   db.prepare(`
     UPDATE user_inventory SET isEquipped = 1
     WHERE userId = ? AND itemCode = ?
   `).run(userId, itemCode);
 
-  return { success: true, equipped: itemCode, slot: itemDef.cosmeticSlot };
+  return { success: true, equipped: itemCode, itemType: itemDef.itemType };
 }
 
 function unequipItem(userId, itemCode) {
@@ -307,7 +303,7 @@ function getInventory(userId) {
   return db.prepare(`
     SELECT
       ui.slotIndex, ui.isEquipped, ui.obtainedAt,
-      id.itemCode, id.name, id.description, id.itemType, id.cosmeticSlot
+      id.itemCode, id.name, id.description, id.itemType
     FROM user_inventory ui
     JOIN item_definitions id ON ui.itemCode = id.itemCode
     WHERE ui.userId = ?
@@ -315,15 +311,15 @@ function getInventory(userId) {
   `).all(userId);
 }
 
-// 탭별 조회 (itemType 기준 필터 - 슬롯 구조와 독립적)
-// itemType: 'cosmetic' | 'relic' | 'consumable' | null(전체)
+// 탭별 조회 (itemType 기준 - 슬롯 구조와 독립)
+// itemType: null = 전체 / 'Hat' / 'Bag' / 'Clothes' / 'Theme' / 'Friend' / 'Consumable'
 function getInventoryByType(userId, itemType) {
   if (!itemType) return getInventory(userId);
 
   return db.prepare(`
     SELECT
       ui.slotIndex, ui.isEquipped, ui.obtainedAt,
-      id.itemCode, id.name, id.description, id.itemType, id.cosmeticSlot
+      id.itemCode, id.name, id.description, id.itemType
     FROM user_inventory ui
     JOIN item_definitions id ON ui.itemCode = id.itemCode
     WHERE ui.userId = ? AND id.itemType = ?
@@ -331,18 +327,18 @@ function getInventoryByType(userId, itemType) {
   `).all(userId, itemType);
 }
 
-// 장착 중인 치장 아이템만 조회
+// 장착 중인 아이템만 조회
 function getEquippedItems(userId) {
   return db.prepare(`
-    SELECT ui.slotIndex, id.itemCode, id.name, id.cosmeticSlot
+    SELECT ui.slotIndex, id.itemCode, id.name, id.itemType
     FROM user_inventory ui
     JOIN item_definitions id ON ui.itemCode = id.itemCode
     WHERE ui.userId = ? AND ui.isEquipped = 1
-    ORDER BY id.cosmeticSlot ASC
+    ORDER BY id.itemType ASC
   `).all(userId);
 }
 
-// 특정 아이템 옵션 조회
+// 아이템 옵션 조회
 function getItemOptions(itemCode) {
   return db.prepare(`
     SELECT ido.optionCode, ido.value, io.name, io.description, io.valueType
@@ -352,7 +348,7 @@ function getItemOptions(itemCode) {
   `).all(itemCode);
 }
 
-// 유저 보유 전체 옵션 효과 조회
+// 유저 보유 전체 옵션 조회
 function getUserAllOptions(userId) {
   return db.prepare(`
     SELECT
@@ -373,7 +369,7 @@ function getUserAllOptions(userId) {
 
 function unlockCollection(userId, itemCode) {
   const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
-  if (!itemDef || itemDef.itemType === "consumable") return;
+  if (!itemDef) return;
 
   const collectionEntry = db.prepare(
     "SELECT * FROM collection_definitions WHERE itemCode = ?"
@@ -389,6 +385,7 @@ function unlockCollection(userId, itemCode) {
   `).run(userId, collectionEntry.collectionCode);
 }
 
+// collectionType: null = 전체 / 'Hat' / 'Bag' / 'Clothes' / 'Theme' / 'Friend' / 'Consumable'
 function getCollection(userId, collectionType) {
   const query = collectionType
     ? `SELECT cd.collectionCode, cd.name, cd.description, cd.collectionType,
@@ -470,5 +467,6 @@ module.exports = {
   getCollection,
   purchaseItem,
   getUserItems,
-  getSpendLog
+  getSpendLog,
+  VALID_ITEM_TYPES
 };
