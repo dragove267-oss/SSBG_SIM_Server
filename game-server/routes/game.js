@@ -47,7 +47,7 @@ function isResetDoneToday(userId) {
   return !!row;
 }
 
-// userId 값을 studentId로도 포함해서 반환 (블루프린트 호환)
+//  userId 값을 studentId로도 포함해서 반환 
 function userWithStudentId(user) {
   return { ...user, studentId: user.userId };
 }
@@ -120,7 +120,7 @@ router.post("/login", async (req, res) => {
 
     res.json({
       success: true,
-      // studentId 포함 (블루프린트 호환)
+      //  studentId 포함 
       user: userWithStudentId(user),
       Data: {
         studentId:        user.userId,
@@ -379,6 +379,35 @@ router.get("/collection/:userId", (req, res) => {
     return res.status(400).json({ error: `type must be one of: ${VALID_ITEM_TYPES.join(", ")}` });
   try {
     res.json({ success: true, entries: getCollection(req.params.userId, type || null) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 해금된 itemCode 목록만 반환 (언리얼 아이템 테이블 비교용)
+// ?type=Hat|Bag|... 으로 특정 타입만 필터 가능
+router.get("/collection/:userId/unlocked", (req, res) => {
+  const { type } = req.query;
+  if (type && !VALID_ITEM_TYPES.includes(type))
+    return res.status(400).json({ error: `type must be one of: ${VALID_ITEM_TYPES.join(", ")}` });
+
+  try {
+    const query = type
+      ? `SELECT cd.itemCode
+         FROM collection_definitions cd
+         JOIN user_collection uc ON cd.collectionCode = uc.collectionCode
+         WHERE uc.userId = ? AND uc.isUnlocked = 1 AND cd.collectionType = ?`
+      : `SELECT cd.itemCode
+         FROM collection_definitions cd
+         JOIN user_collection uc ON cd.collectionCode = uc.collectionCode
+         WHERE uc.userId = ? AND uc.isUnlocked = 1`;
+
+    const rows = type
+      ? db.prepare(query).all(req.params.userId, type)
+      : db.prepare(query).all(req.params.userId);
+
+    const itemCodes = rows.map(r => r.itemCode);
+    res.json({ success: true, itemCodes });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
