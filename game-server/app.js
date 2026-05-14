@@ -24,39 +24,43 @@ app.post("/api/admin/apply-reward", async (req, res) => {
 
   try {
     // 1. 학교서버에서 userId로 최신 데이터 가져와서 로컬 DB 동기화
+    let attendanceList = [];
+    let assignmentList = [];
     try {
       const attendanceRes = await axios.get(`http://localhost:4000/attendance?userId=${userId}`);
+      attendanceList = attendanceRes.data.attendance || [];
+    } catch (e) {
+      console.warn(`[Admin-Sync] 출석 데이터 없음: ${userId}`);
+    }
+    try {
       const assignmentRes = await axios.get(`http://localhost:4000/assignment?userId=${userId}`);
-      syncAttendanceRecords(userId, attendanceRes.data.attendance);
-      syncAssignmentRecords(userId, assignmentRes.data.assignment);
-    } catch (syncErr) {
-      console.warn(`[Admin-Sync] 학교서버 동기화 스킵 (미등록 or 오류):`, syncErr.message);
+      assignmentList = assignmentRes.data.assignment || [];
+    } catch (e) {
+      console.warn(`[Admin-Sync] 과제 데이터 없음: ${userId}`);
     }
 
-    // 2. 로컬 DB의 실제 유효한 개수 파악
-    const currentAttendance = db.prepare(
-      "SELECT COUNT(*) as count FROM academic_attendance WHERE userId = ? AND status = '출석'"
-    ).get(userId).count;
-    const currentAssignment = db.prepare(
-      "SELECT COUNT(*) as count FROM academic_assignment WHERE userId = ? AND status = '제출'"
-    ).get(userId).count;
+    // 로컬 DB 동기화
+    syncAttendanceRecords(userId, attendanceList);
+    syncAssignmentRecords(userId, assignmentList);
 
-    // 3. 해당 타입 스냅샷을 현재보다 1 작게 강제 조정 (보상 1회 트리거)
+    // 2. 로컬 DB의 실제 유효한 개수 파악
+    const currentAttendance = attendanceList.filter(a => a.status === "출석").length;
+    const currentAssignment = assignmentList.filter(a => a.status === "제출").length;
+
+    // 3. 해당 타입 스냅샷을 현재보다 1 작게 강제 조정 (보상 1회 트리거 보장)
+    db.prepare(
+      "INSERT OR IGNORE INTO school_snapshots (userId, attendanceCount, assignmentCount) VALUES (?, 0, 0)"
+    ).run(userId);
+
     if (type === "attendance") {
-      db.prepare(
-        "INSERT OR IGNORE INTO school_snapshots (userId, attendanceCount, assignmentCount) VALUES (?, 0, 0)"
-      ).run(userId);
       db.prepare("UPDATE school_snapshots SET attendanceCount = ? WHERE userId = ?")
         .run(Math.max(0, currentAttendance - 1), userId);
     } else if (type === "assignment") {
-      db.prepare(
-        "INSERT OR IGNORE INTO school_snapshots (userId, attendanceCount, assignmentCount) VALUES (?, 0, 0)"
-      ).run(userId);
       db.prepare("UPDATE school_snapshots SET assignmentCount = ? WHERE userId = ?")
         .run(Math.max(0, currentAssignment - 1), userId);
     }
 
-    // 4. 보상 로직 호출
+    // 4. 보상 로직 호출 (applySchoolReward 내부에서 스냅샷과 비교하여 로그를 남김)
     const result = applySchoolReward(userId, currentAttendance, currentAssignment);
     console.log(`[Admin-Sync] 완료: ${userId}, 보상지급: ${result.hasChange}`);
 
