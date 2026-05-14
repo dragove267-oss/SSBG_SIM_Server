@@ -1,5 +1,5 @@
 const axios = require("axios");
-const schoolDb = require("../database/school-db");
+const schoolDb = require("../database/db");
 
 const GAME_SERVER = "http://localhost:3000";
 

@@ -203,7 +203,7 @@ app.post("/users/:userId/update", (req, res) => {
 app.get("/academic", (req, res) => {
     try {
         // userId 기준으로 조회
-        const students = schoolDb.prepare(`
+        const rows = schoolDb.prepare(`
             SELECT userId,
                 (SELECT COUNT(*) FROM attendance WHERE userId = s.userId AND status = '출석') as attCount,
                 (SELECT COUNT(*) FROM assignment WHERE userId = s.userId AND status = '제출') as asgnCount
@@ -213,6 +213,9 @@ app.get("/academic", (req, res) => {
                 SELECT DISTINCT userId FROM assignment
             ) s
         `).all();
+
+        // EJS에서 studentId를 기대하므로 매핑
+        const students = rows.map(r => ({ ...r, studentId: r.userId }));
 
         res.render("academic", { students, page: "academic" });
     } catch (e) {
@@ -232,9 +235,16 @@ app.get("/academic/:userId", (req, res) => {
         ).all(userId);
 
         // 게임 DB에서 유저 존재 여부만 확인
-        const gameUser = db.prepare("SELECT userId FROM users WHERE userId = ?").get(userId);
+        const mappedUser = db.prepare("SELECT userId FROM users WHERE userId = ?").get(userId);
 
-        res.render("academic-detail", { userId, attendance, assignments, gameUser, page: "academic" });
+        res.render("academic-detail", { 
+            studentId: userId, 
+            userId, 
+            attendance, 
+            assignments, 
+            mappedUser, 
+            page: "academic" 
+        });
     } catch (err) {
         res.status(500).send(err.message);
     }
@@ -324,12 +334,12 @@ app.post("/academic/:userId/assignment/delete", async (req, res) => {
 
 // 학번 추가 (userId 기준)
 app.post("/academic/add-student", (req, res) => {
-    const { userId } = req.body;
+    const { studentId } = req.body;
     try {
         schoolDb.prepare(
             "INSERT OR IGNORE INTO attendance (userId, week, status) VALUES (?, 0, '결석')"
-        ).run(userId);
-        res.redirect(`/academic/${userId}`);
+        ).run(studentId);
+        res.redirect(`/academic/${studentId}`);
     } catch (err) {
         res.status(500).send(err.message);
     }
