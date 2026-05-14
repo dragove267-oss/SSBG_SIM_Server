@@ -1,42 +1,65 @@
 const express = require("express");
 const router = express.Router();
-const db = require("../database/db");
 const {
+  verifyStudent,
+  getAttendance,
+  getAssignment,
   calculateReward,
   pushToGameServer
 } = require("../services/schoolService");
 
-// 출석 조회 (학번 기준)
-router.get("/attendance", (req, res) => {
-  const { studentId } = req.query;
-  if (!studentId) return res.status(400).json({ error: "studentId required" });
+// 학번 검증
+router.post("/verify-student", (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: "userId required" });
 
-  const attendance = db.prepare("SELECT week, status FROM attendance WHERE studentId = ? ORDER BY week ASC").all(studentId);
-  res.json({ studentId, attendance });
+  const exists = verifyStudent(userId);
+  if (!exists) {
+    return res.status(404).json({ success: false, message: "등록되지 않은 학번입니다." });
+  }
+
+  res.json({ success: true, userId });
 });
 
-// 과제 조회 (학번 기준)
-router.get("/assignment", (req, res) => {
-  const { studentId } = req.query;
-  if (!studentId) return res.status(400).json({ error: "studentId required" });
+// 출석 조회
+router.get("/attendance", (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ error: "userId required" });
 
-  const assignment = db.prepare("SELECT name, status FROM assignment WHERE studentId = ? ORDER BY id ASC").all(studentId);
-  res.json({ studentId, assignment });
+  const attendance = getAttendance(userId);
+  if (!attendance || attendance.length === 0) {
+    return res.status(404).json({ error: "학번을 찾을 수 없습니다." });
+  }
+
+  res.json({ userId, attendance });
+});
+
+// 과제 조회
+router.get("/assignment", (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ error: "userId required" });
+
+  const assignment = getAssignment(userId);
+  if (!assignment || assignment.length === 0) {
+    return res.status(404).json({ error: "학번을 찾을 수 없습니다." });
+  }
+
+  res.json({ userId, assignment });
 });
 
 // 학교 데이터 변동 시 게임서버로 푸시
 router.post("/notify-update", async (req, res) => {
-  const { studentId, userId } = req.body; // 매핑을 위해 둘 다 받음
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: "userId required" });
 
-  if (!userId) {
-    return res.status(400).json({ error: "userId required" });
+  if (!verifyStudent(userId)) {
+    return res.status(404).json({ error: "등록되지 않은 학번입니다." });
   }
 
   try {
-    const attendance = await getAttendance(userId);
-    const assignment = await getAssignment(userId);
+    const attendance = getAttendance(userId);
+    const assignment = getAssignment(userId);
     const { attendanceCount, assignmentCount } = calculateReward(attendance, assignment);
-
     const result = await pushToGameServer(userId, attendanceCount, assignmentCount);
 
     res.json({

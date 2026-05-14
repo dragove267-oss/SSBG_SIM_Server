@@ -122,18 +122,16 @@ db.exec(`
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS item_definitions (
-    itemCode    TEXT PRIMARY KEY,
-    name        TEXT NOT NULL,
-    description TEXT DEFAULT '',
-    itemType    TEXT NOT NULL DEFAULT 'relic'
-                CHECK(itemType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'relic')),
+    itemCode     TEXT PRIMARY KEY,
+    name         TEXT NOT NULL,
+    description  TEXT DEFAULT '',
+    itemType     TEXT NOT NULL DEFAULT 'relic'
+                 CHECK(itemType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'relic')),
     cosmeticSlot TEXT,
-    createdAt   TEXT DEFAULT (datetime('now'))
+    createdAt    TEXT DEFAULT (datetime('now'))
   )
 `);
 
-// 옵션 코드
-// valueType: 'multiplier'(배율) | 'flat'(고정값) | 'chance'(확률)
 db.exec(`
   CREATE TABLE IF NOT EXISTS item_options (
     optionCode   TEXT PRIMARY KEY,
@@ -146,7 +144,6 @@ db.exec(`
   )
 `);
 
-// 아이템↔옵션 연결 (옵션 여러 개 가능)
 db.exec(`
   CREATE TABLE IF NOT EXISTS item_definition_options (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -159,9 +156,6 @@ db.exec(`
 
 // ================================================================
 // 가방 (user_inventory)
-// slotIndex: 0~79 (총 80칸, 페이지당 20칸)
-// isEquipped: 0=미장착, 1=장착 (Hat/Bag/Clothes/Theme/Friend 사용)
-//   같은 itemType은 1개만 장착 가능 (서비스 로직에서 체크)
 // ================================================================
 
 db.exec(`
@@ -179,7 +173,6 @@ db.exec(`
 
 // ================================================================
 // 도감 테이블
-// collectionType: 'Hat' | 'Bag' | 'Clothes' | 'Theme' | 'Friend' | 'Consumable'
 // ================================================================
 
 db.exec(`

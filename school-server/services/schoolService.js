@@ -1,48 +1,50 @@
 const axios = require("axios");
-const db = require("../database/db");
+const schoolDb = require("../database/school-db");
 
 const GAME_SERVER = "http://localhost:3000";
 
-// 학번(studentId) 기준으로 출석 데이터 조회
-async function getAttendance(studentId) {
-  try {
-    return db.prepare("SELECT week, status FROM attendance WHERE studentId = ? ORDER BY week ASC").all(studentId);
-  } catch (err) {
-    console.error(`[SchoolService] 출석 조회 실패:`, err.message);
-    return [];
-  }
+// 학번(userId) 존재 여부 확인
+function verifyStudent(userId) {
+  const row = schoolDb.prepare(
+    "SELECT userId FROM attendance WHERE userId = ? LIMIT 1"
+  ).get(userId);
+  return !!row;
 }
 
-// 학번(studentId) 기준으로 과제 데이터 조회
-async function getAssignment(studentId) {
-  try {
-    return db.prepare("SELECT name, status FROM assignment WHERE studentId = ? ORDER BY id ASC").all(studentId);
-  } catch (err) {
-    console.error(`[SchoolService] 과제 조회 실패:`, err.message);
-    return [];
-  }
+// 출석 데이터 조회
+function getAttendance(userId) {
+  return schoolDb.prepare(
+    "SELECT week, status FROM attendance WHERE userId = ? ORDER BY week ASC"
+  ).all(userId);
 }
 
-// 출석/과제 횟수 계산
+// 과제 데이터 조회
+function getAssignment(userId) {
+  return schoolDb.prepare(
+    "SELECT name, status FROM assignment WHERE userId = ? ORDER BY name ASC"
+  ).all(userId);
+}
+
+// 출석/과제 카운트 계산
 function calculateReward(attendance, assignment) {
   const attendanceCount = attendance.filter(a => a.status === "출석").length;
   const assignmentCount = assignment.filter(a => a.status === "제출").length;
   return { attendanceCount, assignmentCount };
 }
 
-// 게임 서버로 데이터 전송 (연동)
+// 게임서버로 푸시
 async function pushToGameServer(userId, attendanceCount, assignmentCount) {
-  if (!userId) return;
   try {
     const res = await axios.post(
       `${GAME_SERVER}/api/school-webhook`,
       { userId, attendanceCount, assignmentCount }
     );
+    console.log(`[Webhook] 게임서버 전송 성공:`, res.data);
     return res.data;
   } catch (err) {
-    console.error(`[SchoolService] 게임서버 전송 실패:`, err.message);
+    console.error(`[Webhook] 게임서버 전송 실패:`, err.message);
     throw err;
   }
 }
 
-module.exports = { getAttendance, getAssignment, calculateReward, pushToGameServer };
+module.exports = { verifyStudent, getAttendance, getAssignment, calculateReward, pushToGameServer };

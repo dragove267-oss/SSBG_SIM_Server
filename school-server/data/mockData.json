@@ -1,11 +1,24 @@
 {
-  "attendance": [
-    { "week": 1, "status": "출석" },
-    { "week": 2, "status": "출석" },
-    { "week": 3, "status": "지각" }
-  ],
-  "assignment": [
-    { "name": "과제1", "status": "제출" },
-    { "name": "과제2", "status": "미제출" }
-  ]
+  "2021001": {
+    "attendance": [
+      { "week": 1, "status": "출석" },
+      { "week": 2, "status": "출석" },
+      { "week": 3, "status": "지각" }
+    ],
+    "assignment": [
+      { "name": "과제1", "status": "제출" },
+      { "name": "과제2", "status": "미제출" }
+    ]
+  },
+  "2021002": {
+    "attendance": [
+      { "week": 1, "status": "출석" },
+      { "week": 2, "status": "결석" },
+      { "week": 3, "status": "출석" }
+    ],
+    "assignment": [
+      { "name": "과제1", "status": "제출" },
+      { "name": "과제2", "status": "제출" }
+    ]
+  }
 }
