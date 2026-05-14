@@ -47,6 +47,11 @@ function isResetDoneToday(userId) {
   return !!row;
 }
 
+// userId 값을 studentId로도 포함해서 반환 (블루프린트 호환)
+function userWithStudentId(user) {
+  return { ...user, studentId: user.userId };
+}
+
 // ================================================================
 // 학교 웹훅
 // ================================================================
@@ -56,14 +61,19 @@ router.post("/school-webhook", (req, res) => {
   if (!userId) return res.status(400).json({ error: "userId required" });
   try {
     const result = applySchoolReward(userId, attendanceCount, assignmentCount);
-    res.json({ success: true, user: result.user, delta: result.delta, hasChange: result.hasChange });
+    res.json({
+      success: true,
+      user: userWithStudentId(result.user),
+      delta: result.delta,
+      hasChange: result.hasChange
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // ================================================================
-// 로그인 (학번 검증 포함)
+// 로그인
 // ================================================================
 
 router.post("/login", async (req, res) => {
@@ -78,7 +88,6 @@ router.post("/login", async (req, res) => {
         return res.status(401).json({ success: false, message: "등록되지 않은 학번입니다." });
       }
     } catch (verifyErr) {
-      // 학교서버 다운 시 경고만 남기고 계속 진행
       console.warn("[Login] 학교서버 검증 실패 - 스킵:", verifyErr.message);
     }
 
@@ -111,7 +120,10 @@ router.post("/login", async (req, res) => {
 
     res.json({
       success: true,
-      user, Data: {
+      // studentId 포함 (블루프린트 호환)
+      user: userWithStudentId(user),
+      Data: {
+        studentId:        user.userId,
         academicCurrency: user.academicCurrency,
         extraCurrency:    user.extraCurrency,
         idleCurrency:     user.idleCurrency,
@@ -137,7 +149,9 @@ router.post("/spend-currency", (req, res) => {
   if (!userId || !currencyType || amount == null)
     return res.status(400).json({ error: "userId, currencyType, amount required" });
   try {
-    res.json(spendCurrency(userId, currencyType, amount));
+    const result = spendCurrency(userId, currencyType, amount);
+    if (result.current) result.current = userWithStudentId(result.current);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -148,7 +162,9 @@ router.post("/currency/gain", (req, res) => {
   if (!userId || !currencyType || amount == null)
     return res.status(400).json({ success: false, error: "userId, currencyType, amount required" });
   try {
-    res.json(userService.gainCurrency(userId, currencyType, amount));
+    const result = userService.gainCurrency(userId, currencyType, amount);
+    if (result.current) result.current = userWithStudentId(result.current);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -161,7 +177,8 @@ router.post("/currency/gain", (req, res) => {
 router.get("/user/:userId", (req, res) => {
   try {
     const user = getOrCreateUser(req.params.userId);
-    res.json({ success: true, user, Data: user });
+    const u = userWithStudentId(user);
+    res.json({ success: true, user: u, Data: u });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -175,7 +192,7 @@ router.post("/daily-summary", (req, res) => {
   const { userId } = req.body;
   if (!userId) return res.status(400).json({ error: "userId required" });
   try {
-    const user = getOrCreateUser(userId);
+    const user = userWithStudentId(getOrCreateUser(userId));
     let playStats = { totalExp: 0, totalAcademicCurrency: 0, totalExtraCurrency: 0, totalIdleCurrency: 0, playTime: 0 };
     try {
       playStats = db.prepare(`
@@ -211,12 +228,11 @@ router.post("/daily-reset", async (req, res) => {
   if (!userId) return res.status(400).json({ error: "userId required" });
   try {
     if (isResetDoneToday(userId)) {
-      const user = getOrCreateUser(userId);
+      const user = userWithStudentId(getOrCreateUser(userId));
       return res.json({ success: false, message: "Already reset today", user, Data: user,
         resetDoneToday: true, secondsUntilReset: getSecondsUntilReset() });
     }
 
-    // userId로 학교서버 조회 통일
     const attendanceRes = await axios.get(`http://localhost:4000/attendance?userId=${userId}`);
     const assignmentRes = await axios.get(`http://localhost:4000/assignment?userId=${userId}`);
     const attendanceList = attendanceRes.data.attendance;
@@ -231,8 +247,9 @@ router.post("/daily-reset", async (req, res) => {
 
     db.prepare("INSERT INTO daily_reset_log (userId, resetAt) VALUES (?, datetime('now'))").run(userId);
 
+    const user = userWithStudentId(result.user);
     res.json({
-      success: true, user: result.user, Data: result.user,
+      success: true, user, Data: user,
       delta: result.delta, Delta: result.delta, hasChange: result.hasChange,
       resetDoneToday: true, secondsUntilReset: getSecondsUntilReset(), readyForDreamShop: true
     });
@@ -435,7 +452,8 @@ router.post("/admin/collection-definition", (req, res) => {
 
 router.get("/admin/users", (req, res) => {
   try {
-    res.json({ success: true, users: db.prepare("SELECT * FROM users ORDER BY updatedAt DESC").all() });
+    const users = db.prepare("SELECT * FROM users ORDER BY updatedAt DESC").all();
+    res.json({ success: true, users: users.map(userWithStudentId) });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -453,54 +471,13 @@ router.post("/admin/user/set-stats", (req, res) => {
     `).run(stats.academicCurrency, stats.extraCurrency, stats.idleCurrency, stats.exp, userId);
 
     if (result.changes > 0) {
-      res.json({ success: true, user: db.prepare("SELECT * FROM users WHERE userId = ?").get(userId) });
+      const user = userWithStudentId(db.prepare("SELECT * FROM users WHERE userId = ?").get(userId));
+      res.json({ success: true, user });
     } else {
       res.status(404).json({ success: false, error: "User not found" });
     }
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// admin/apply-reward를 index.js에서 game.js로 이동
-router.post("/admin/apply-reward", async (req, res) => {
-  const { userId, type } = req.body;
-  console.log(`[Admin-Sync] 보상 동기화 요청: ${userId} (${type})`);
-
-  try {
-    // 학교서버에서 최신 데이터 가져와서 로컬 DB 동기화
-    const attendanceRes = await axios.get(`http://localhost:4000/attendance?userId=${userId}`);
-    const assignmentRes = await axios.get(`http://localhost:4000/assignment?userId=${userId}`);
-
-    syncAttendanceRecords(userId, attendanceRes.data.attendance);
-    syncAssignmentRecords(userId, assignmentRes.data.assignment);
-
-    // 현재 실제 유효한 개수 파악
-    const currentAttendance = db.prepare(
-      "SELECT COUNT(*) as count FROM academic_attendance WHERE userId = ? AND status = '출석'"
-    ).get(userId).count;
-    const currentAssignment = db.prepare(
-      "SELECT COUNT(*) as count FROM academic_assignment WHERE userId = ? AND status = '제출'"
-    ).get(userId).count;
-
-    // 해당 타입 스냅샷을 현재보다 1 작게 강제 조정 (보상 1회 트리거)
-    if (type === "attendance") {
-      db.prepare("INSERT OR IGNORE INTO school_snapshots (userId, attendanceCount, assignmentCount) VALUES (?, 0, 0)").run(userId);
-      db.prepare("UPDATE school_snapshots SET attendanceCount = ? WHERE userId = ?")
-        .run(Math.max(0, currentAttendance - 1), userId);
-    } else if (type === "assignment") {
-      db.prepare("INSERT OR IGNORE INTO school_snapshots (userId, attendanceCount, assignmentCount) VALUES (?, 0, 0)").run(userId);
-      db.prepare("UPDATE school_snapshots SET assignmentCount = ? WHERE userId = ?")
-        .run(Math.max(0, currentAssignment - 1), userId);
-    }
-
-    const result = applySchoolReward(userId, currentAttendance, currentAssignment);
-    console.log(`[Admin-Sync] 완료: ${userId}, 보상지급: ${result.hasChange}`);
-
-    res.json({ success: true, hasChange: result.hasChange, delta: result.delta });
-  } catch (err) {
-    console.error("[Admin-Sync] 실패:", err);
-    res.status(500).json({ error: err.message });
   }
 });
 
