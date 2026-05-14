@@ -16,7 +16,6 @@ const INVENTORY_PAGE_SIZE  = 20;  // 한 페이지당 슬롯 수 (5x4)
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     userId           TEXT PRIMARY KEY,
-    studentId        TEXT UNIQUE DEFAULT NULL,
     academicCurrency INTEGER DEFAULT 0,
     extraCurrency    INTEGER DEFAULT 0,
     idleCurrency     INTEGER DEFAULT 0,

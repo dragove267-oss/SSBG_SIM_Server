@@ -412,14 +412,70 @@ app.get("/system", (req, res) => res.render("system", { page: "system" }));
 
 app.post("/system/reset-db", (req, res) => {
     const fs = require("fs");
+    const { exec } = require("child_process");
+    
     try {
-        db.close();
-        schoolDb.close();
-        if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
-        if (fs.existsSync(schoolDbPath)) fs.unlinkSync(schoolDbPath);
-        setTimeout(() => process.exit(0), 1000);
-        res.json({ success: true, message: "DB 초기화 완료. 서버가 재시작됩니다." });
+        // 1. 타 서버(game, school) 중지 시도 (PM2 환경)
+        // 윈도우에서 파일 잠김(EBUSY) 문제를 방지하기 위해 먼저 프로세스를 점유 해제합니다.
+        exec("pm2 stop game-server school-server", (stopErr) => {
+            if (stopErr) console.warn("[Admin] 타 서버 중지 중 경고 (이미 중지되었을 수 있음):", stopErr.message);
+
+            try {
+                // 2. 현재 어드민 서버의 DB 연결도 닫습니다.
+                db.close();
+                schoolDb.close();
+
+                // 3. 파일 삭제 시도
+                let deletedCount = 0;
+                if (fs.existsSync(dbPath)) {
+                    fs.unlinkSync(dbPath);
+                    deletedCount++;
+                }
+                if (fs.existsSync(schoolDbPath)) {
+                    fs.unlinkSync(schoolDbPath);
+                    deletedCount++;
+                }
+
+                console.log(`[Admin] DB 파일 ${deletedCount}개 삭제 성공.`);
+                res.json({ success: true, message: "DB 파일 초기화 완료. 서버가 곧 재시작됩니다." });
+
+            } catch (unlinkErr) {
+                console.error("[Admin] 파일 삭제 실패 (데이터만 드롭 시도):", unlinkErr.message);
+                
+                // 파일 삭제가 불가능한 경우(권한, 강제 잠김 등), 테이블이라도 다 날립니다.
+                try {
+                    const Database = require("better-sqlite3");
+                    const tempDb = new Database(dbPath);
+                    const tempSchoolDb = new Database(schoolDbPath);
+
+                    const dropAll = (d) => {
+                        const tables = d.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all();
+                        for (const t of tables) {
+                            d.prepare(`DROP TABLE IF EXISTS "${t.name}"`).run();
+                        }
+                    };
+
+                    dropAll(tempDb);
+                    dropAll(tempSchoolDb);
+                    tempDb.close();
+                    tempSchoolDb.close();
+
+                    res.json({ success: true, message: "DB 파일 삭제 실패로 인해 테이블 데이터만 초기화되었습니다. 서버가 재시작됩니다." });
+                } catch (dropErr) {
+                    console.error("[Admin] 테이블 드롭도 실패:", dropErr.message);
+                    return res.status(500).json({ error: "DB 초기화에 완전히 실패했습니다: " + dropErr.message });
+                }
+            } finally {
+                // 4. 어떤 경우든 1초 뒤 모든 서버 재시작 (PM2가 admin-server도 다시 살림)
+                setTimeout(() => {
+                    exec("pm2 start game-server school-server", () => {
+                        process.exit(0);
+                    });
+                }, 1000);
+            }
+        });
     } catch (err) {
+        console.error("[Admin] 초기화 루틴 치명적 에러:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
