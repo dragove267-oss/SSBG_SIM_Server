@@ -394,6 +394,47 @@ app.post("/users/:userId/collection/save", (req, res) => {
 });
 
 // ================================================================
+// 아이템 도감 관리
+// ================================================================
+
+app.get("/items", (req, res) => {
+    try {
+        const items = db.prepare("SELECT * FROM item_definitions ORDER BY createdAt DESC").all();
+        res.render("items", { items, page: "items" });
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+app.post("/items/add", (req, res) => {
+    const { itemCode, name, description, itemType, cosmeticSlot } = req.body;
+    try {
+        db.prepare(`
+            INSERT INTO item_definitions (itemCode, name, description, itemType, cosmeticSlot)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(itemCode) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                itemType = excluded.itemType,
+                cosmeticSlot = excluded.cosmeticSlot
+        `).run(itemCode, name, description || "", itemType, cosmeticSlot || null);
+        res.redirect("/items?success=added");
+    } catch (err) {
+        res.status(500).send(err.message);
+    }
+});
+
+app.post("/items/delete", (req, res) => {
+    const { itemCode } = req.body;
+    try {
+        db.prepare("DELETE FROM item_definitions WHERE itemCode = ?").run(itemCode);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ================================================================
 // 로그 및 시스템
 // ================================================================
 

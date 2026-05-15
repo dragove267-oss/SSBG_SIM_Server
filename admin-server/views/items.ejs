@@ -1,0 +1,123 @@
+<%- include('partials/header', { page: 'items' }) %>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1 class="h3 mb-0 text-gray-800">아이템 도감 관리</h1>
+    <button class="btn btn-primary fw-bold" data-bs-toggle="modal" data-bs-target="#addItemModal">
+        <i class="bi bi-plus-lg me-2"></i>새 아이템 등록
+    </button>
+</div>
+
+<div class="card shadow border-0">
+    <div class="card-header py-3 bg-white">
+        <h6 class="m-0 font-weight-bold text-primary">아이템 목록</h6>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-4">ITEM CODE</th>
+                        <th>NAME</th>
+                        <th>TYPE</th>
+                        <th>COSMETIC SLOT</th>
+                        <th>DESCRIPTION</th>
+                        <th class="text-center">ACTION</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <% items.forEach(item => { %>
+                    <tr id="item-row-<%= item.itemCode %>">
+                        <td class="ps-4 font-monospace fw-bold text-primary"><%= item.itemCode %></td>
+                        <td class="fw-bold"><%= item.name %></td>
+                        <td><span class="badge bg-info text-dark border"><%= item.itemType %></span></td>
+                        <td><span class="text-muted"><%= item.cosmeticSlot || '-' %></span></td>
+                        <td><small class="text-muted"><%= item.description %></small></td>
+                        <td class="text-center">
+                            <button class="btn btn-sm text-danger" onclick="deleteItem('<%= item.itemCode %>')">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                    <% }) %>
+                    <% if (items.length === 0) { %>
+                    <tr>
+                        <td colspan="6" class="text-center py-5 text-muted">등록된 아이템이 없습니다.</td>
+                    </tr>
+                    <% } %>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Add Item Modal -->
+<div class="modal fade" id="addItemModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title fw-bold">새 아이템 등록</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form action="/items/add" method="POST">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">ITEM CODE</label>
+                        <input type="text" name="itemCode" class="form-control" placeholder="E.g. ITEM_HAT_01" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">NAME</label>
+                        <input type="text" name="name" class="form-control" placeholder="아이템 이름" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">ITEM TYPE</label>
+                        <select name="itemType" class="form-select">
+                            <option value="Hat">Hat</option>
+                            <option value="Bag">Bag</option>
+                            <option value="Clothes">Clothes</option>
+                            <option value="Theme">Theme</option>
+                            <option value="Friend">Friend</option>
+                            <option value="Consumable">Consumable</option>
+                            <option value="relic" selected>relic</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">COSMETIC SLOT (Optional)</label>
+                        <input type="text" name="cosmeticSlot" class="form-control" placeholder="E.g. Head, Back">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold text-muted">DESCRIPTION</label>
+                        <textarea name="description" class="form-control" rows="3"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                    <button type="submit" class="btn btn-primary px-4 fw-bold">등록하기</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+async function deleteItem(itemCode) {
+    if (!confirm(`'${itemCode}' 아이템을 삭제하시겠습니까? (인벤토리에서 참조 중이면 삭제되지 않을 수 있습니다.)`)) return;
+    
+    try {
+        const res = await fetch('/items/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ itemCode })
+        });
+        const result = await res.json();
+        if (result.success) {
+            document.getElementById(`item-row-${itemCode}`).remove();
+        } else {
+            alert('삭제 실패: ' + result.error);
+        }
+    } catch (err) {
+        alert('에러 발생: ' + err.message);
+    }
+}
+</script>
+
+<%- include('partials/footer') %>
