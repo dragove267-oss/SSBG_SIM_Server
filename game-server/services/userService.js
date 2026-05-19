@@ -8,6 +8,7 @@ const REWARD_CONFIG = {
 
 const INVENTORY_SLOT_COUNT = 80;
 
+// relic 포함
 const VALID_ITEM_TYPES = ['Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'relic'];
 
 // ================================================================
@@ -247,8 +248,6 @@ function addItemToInventory(userId, itemCode) {
     VALUES (?, ?, ?, 0)
   `).run(userId, itemCode, emptySlot);
 
-  unlockCollection(userId, itemCode);
-
   return { success: true, slotIndex: emptySlot, item: itemDef };
 }
 
@@ -356,41 +355,58 @@ function getUserAllOptions(userId) {
 // 도감
 // ================================================================
 
-function unlockCollection(userId, itemCode) {
-  const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
-  if (!itemDef) return;
-
-  const collectionEntry = db.prepare(
-    "SELECT * FROM collection_definitions WHERE itemCode = ?"
-  ).get(itemCode);
-  if (!collectionEntry) return;
-
-  db.prepare(`
-    INSERT INTO user_collection (userId, collectionCode, isUnlocked, unlockedAt)
-    VALUES (?, ?, 1, datetime('now'))
-    ON CONFLICT(userId, collectionCode) DO UPDATE SET
-      isUnlocked = 1,
-      unlockedAt = CASE WHEN isUnlocked = 0 THEN datetime('now') ELSE unlockedAt END
-  `).run(userId, collectionEntry.collectionCode);
-}
-
+//  item_definitions 전체 기준
+//    user_inventory에 있으면 isUnlocked = 1 (해금)
+//    없으면 isUnlocked = 0 (미해금)
+// collectionType: null = 전체 / 'Hat' / 'Bag' / 'Clothes' / 'Theme' / 'Friend' / 'Consumable' / 'relic'
 function getCollection(userId, collectionType) {
   const query = collectionType
-    ? `SELECT cd.collectionCode, cd.name, cd.description, cd.collectionType,
-              COALESCE(uc.isUnlocked, 0) AS isUnlocked, uc.unlockedAt
-       FROM collection_definitions cd
-       LEFT JOIN user_collection uc ON cd.collectionCode = uc.collectionCode AND uc.userId = ?
-       WHERE cd.collectionType = ?
-       ORDER BY cd.collectionCode ASC`
-    : `SELECT cd.collectionCode, cd.name, cd.description, cd.collectionType,
-              COALESCE(uc.isUnlocked, 0) AS isUnlocked, uc.unlockedAt
-       FROM collection_definitions cd
-       LEFT JOIN user_collection uc ON cd.collectionCode = uc.collectionCode AND uc.userId = ?
-       ORDER BY cd.collectionType ASC, cd.collectionCode ASC`;
+    ? `SELECT
+         id.itemCode,
+         id.name,
+         id.description,
+         id.itemType AS collectionType,
+         CASE WHEN ui.itemCode IS NOT NULL THEN 1 ELSE 0 END AS isUnlocked,
+         ui.obtainedAt AS unlockedAt
+       FROM item_definitions id
+       LEFT JOIN user_inventory ui ON id.itemCode = ui.itemCode AND ui.userId = ?
+       WHERE id.itemType = ?
+       ORDER BY id.itemCode ASC`
+    : `SELECT
+         id.itemCode,
+         id.name,
+         id.description,
+         id.itemType AS collectionType,
+         CASE WHEN ui.itemCode IS NOT NULL THEN 1 ELSE 0 END AS isUnlocked,
+         ui.obtainedAt AS unlockedAt
+       FROM item_definitions id
+       LEFT JOIN user_inventory ui ON id.itemCode = ui.itemCode AND ui.userId = ?
+       ORDER BY id.itemType ASC, id.itemCode ASC`;
 
   return collectionType
     ? db.prepare(query).all(userId, collectionType)
     : db.prepare(query).all(userId);
+}
+
+//  해금된 itemCode 목록만 반환
+//    = 유저가 가방에 보유한 아이템
+function getUnlockedItemCodes(userId, collectionType) {
+  const query = collectionType
+    ? `SELECT id.itemCode
+       FROM item_definitions id
+       JOIN user_inventory ui ON id.itemCode = ui.itemCode AND ui.userId = ?
+       WHERE id.itemType = ?
+       ORDER BY id.itemCode ASC`
+    : `SELECT id.itemCode
+       FROM item_definitions id
+       JOIN user_inventory ui ON id.itemCode = ui.itemCode AND ui.userId = ?
+       ORDER BY id.itemCode ASC`;
+
+  const rows = collectionType
+    ? db.prepare(query).all(userId, collectionType)
+    : db.prepare(query).all(userId);
+
+  return rows.map(r => r.itemCode);
 }
 
 // ================================================================
@@ -451,8 +467,8 @@ module.exports = {
   getUserAllOptions,
   getUserOptionValue,
   applyOptionToAmount,
-  unlockCollection,
   getCollection,
+  getUnlockedItemCodes,
   purchaseItem,
   getUserItems,
   getSpendLog,
