@@ -125,7 +125,7 @@ db.exec(`
     name         TEXT NOT NULL,
     description  TEXT DEFAULT '',
     itemType     TEXT NOT NULL DEFAULT 'relic'
-                 CHECK(itemType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'relic')),
+                 CHECK(itemType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'Relic')),
     cosmeticSlot TEXT,
     createdAt    TEXT DEFAULT (datetime('now'))
   )
@@ -213,6 +213,17 @@ db.prepare(`
     ('CONSUMABLE_EXTRA_RATE',   '소모성 Extra 배율',     '소모 시 Extra 재화 배율 증가',   'multiplier', 1.5),
     ('CONSUMABLE_EXP_RATE',     '소모성 EXP 배율',       '소모 시 EXP 배율 증가',          'multiplier', 1.5)
 `).run();
+
+//상점 테이블 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS shop_definitions (
+    shopId       TEXT PRIMARY KEY,
+    itemCode     TEXT NOT NULL REFERENCES item_definitions(itemCode),
+    currencyType TEXT NOT NULL CHECK(currencyType IN ('academicCurrency', 'extraCurrency', 'idleCurrency')),
+    price        INTEGER NOT NULL,
+    createdAt    TEXT DEFAULT (datetime('now'))
+  )
+`);
 
 module.exports = db;
 module.exports.INVENTORY_SLOT_COUNT = INVENTORY_SLOT_COUNT;

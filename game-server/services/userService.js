@@ -355,7 +355,7 @@ function getUserAllOptions(userId) {
 // 도감
 // ================================================================
 
-//  item_definitions 전체 기준
+// item_definitions 전체 기준
 //    user_inventory에 있으면 isUnlocked = 1 (해금)
 //    없으면 isUnlocked = 0 (미해금)
 // collectionType: null = 전체 / 'Hat' / 'Bag' / 'Clothes' / 'Theme' / 'Friend' / 'Consumable' / 'relic'
@@ -388,7 +388,7 @@ function getCollection(userId, collectionType) {
     : db.prepare(query).all(userId);
 }
 
-//  해금된 itemCode 목록만 반환
+// 해금된 itemCode 목록만 반환
 //    = 유저가 가방에 보유한 아이템
 function getUnlockedItemCodes(userId, collectionType) {
   const query = collectionType
@@ -448,6 +448,88 @@ function getSpendLog(userId) {
   `).all(userId);
 }
 
+// ================================================================
+// 상점
+// ================================================================
+
+// 상점 목록 조회 (itemType 필터 가능)
+function getShop(itemType) {
+  const query = itemType
+    ? `SELECT sd.shopId, sd.currencyType, sd.price,
+              id.itemCode, id.name, id.description, id.itemType, id.cosmeticSlot
+       FROM shop_definitions sd
+       JOIN item_definitions id ON sd.itemCode = id.itemCode
+       WHERE id.itemType = ?
+       ORDER BY sd.createdAt ASC`
+    : `SELECT sd.shopId, sd.currencyType, sd.price,
+              id.itemCode, id.name, id.description, id.itemType, id.cosmeticSlot
+       FROM shop_definitions sd
+       JOIN item_definitions id ON sd.itemCode = id.itemCode
+       ORDER BY id.itemType ASC, sd.createdAt ASC`;
+
+  return itemType
+    ? db.prepare(query).all(itemType)
+    : db.prepare(query).all();
+}
+
+// 아이템 구매
+function buyItem(userId, shopId) {
+  const shopItem = db.prepare(`
+    SELECT sd.*, id.name, id.itemType
+    FROM shop_definitions sd
+    JOIN item_definitions id ON sd.itemCode = id.itemCode
+    WHERE sd.shopId = ?
+  `).get(shopId);
+
+  if (!shopItem) return { success: false, message: "상점에 없는 아이템입니다." };
+
+  const user = getOrCreateUser(userId);
+
+  // 재화 확인
+  if (user[shopItem.currencyType] < shopItem.price) {
+    return { success: false, message: "재화가 부족합니다.", current: user };
+  }
+
+  // 이미 보유 중인지 확인
+  const already = db.prepare(
+    "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
+  ).get(userId, shopItem.itemCode);
+  if (already) return { success: false, message: "이미 보유한 아이템입니다." };
+
+  // 재화 차감
+  db.prepare(`
+    UPDATE users SET ${shopItem.currencyType} = ${shopItem.currencyType} - ?,
+      updatedAt = datetime('now')
+    WHERE userId = ?
+  `).run(shopItem.price, userId);
+
+  // 소모 로그
+  db.prepare(`
+    INSERT INTO spend_log (userId, currencyType, amount, reason)
+    VALUES (?, ?, ?, ?)
+  `).run(userId, shopItem.currencyType, shopItem.price, `shop:${shopItem.itemCode}`);
+
+  // 인벤토리 추가
+  const invResult = addItemToInventory(userId, shopItem.itemCode);
+  if (!invResult.success) {
+    // 인벤토리 추가 실패 시 재화 복구
+    db.prepare(`
+      UPDATE users SET ${shopItem.currencyType} = ${shopItem.currencyType} + ?,
+        updatedAt = datetime('now')
+      WHERE userId = ?
+    `).run(shopItem.price, userId);
+    return { success: false, message: invResult.message };
+  }
+
+  const updated = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
+  return {
+    success: true,
+    item: shopItem,
+    slotIndex: invResult.slotIndex,
+    current: updated
+  };
+}
+
 module.exports = {
   getOrCreateUser,
   applySchoolReward,
@@ -469,6 +551,8 @@ module.exports = {
   applyOptionToAmount,
   getCollection,
   getUnlockedItemCodes,
+  getShop,
+  buyItem,
   purchaseItem,
   getUserItems,
   getSpendLog,

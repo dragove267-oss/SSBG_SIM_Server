@@ -25,6 +25,8 @@ const {
   unlockCollection,
   getCollection,
   getUnlockedItemCodes,
+  getShop,
+  buyItem,
   VALID_ITEM_TYPES
 } = require("../services/userService");
 
@@ -121,7 +123,7 @@ router.post("/login", async (req, res) => {
 
     res.json({
       success: true,
-      //  studentId 포함 (블루프린트 호환)
+      // studentId 포함 (블루프린트 호환)
       user: userWithStudentId(user),
       Data: {
         studentId:        user.userId,
@@ -365,6 +367,71 @@ router.get("/item-options/:itemCode", (req, res) => {
 router.get("/user-options/:userId", (req, res) => {
   try {
     res.json({ success: true, options: getUserAllOptions(req.params.userId) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================================================================
+// 상점
+// ================================================================
+
+// ?type=Hat|Bag|... (없으면 전체)
+router.get("/shop", (req, res) => {
+  const { type } = req.query;
+  if (type && !VALID_ITEM_TYPES.includes(type))
+    return res.status(400).json({ error: `type must be one of: ${VALID_ITEM_TYPES.join(", ")}` });
+  try {
+    res.json({ success: true, items: getShop(type || null) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/shop/buy", (req, res) => {
+  const { userId, shopId } = req.body;
+  if (!userId || !shopId)
+    return res.status(400).json({ error: "userId, shopId required" });
+  try {
+    const result = buyItem(userId, shopId);
+    if (result.current) result.current = userWithStudentId(result.current);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 어드민 - 상점 아이템 등록
+router.post("/admin/shop-definition", (req, res) => {
+  const { shopId, itemCode, currencyType, price } = req.body;
+  const validCurrencies = ["academicCurrency", "extraCurrency", "idleCurrency"];
+  if (!shopId || !itemCode || !validCurrencies.includes(currencyType) || price == null)
+    return res.status(400).json({ error: "shopId, itemCode, currencyType, price required" });
+
+  try {
+    const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
+    if (!itemDef) return res.status(404).json({ error: "Item not found" });
+
+    db.prepare(`
+      INSERT INTO shop_definitions (shopId, itemCode, currencyType, price)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(shopId) DO UPDATE SET
+        itemCode = excluded.itemCode,
+        currencyType = excluded.currencyType,
+        price = excluded.price
+    `).run(shopId, itemCode, currencyType, price);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 어드민 - 상점 아이템 삭제
+router.delete("/admin/shop-definition/:shopId", (req, res) => {
+  try {
+    db.prepare("DELETE FROM shop_definitions WHERE shopId = ?").run(req.params.shopId);
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
