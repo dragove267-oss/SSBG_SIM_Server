@@ -242,7 +242,6 @@ db.exec(`
     createdAt     TEXT DEFAULT (datetime('now'))
   )
 `);
-x
 module.exports = db;
 module.exports.INVENTORY_SLOT_COUNT = INVENTORY_SLOT_COUNT;
 module.exports.INVENTORY_PAGE_SIZE = INVENTORY_PAGE_SIZE;
