@@ -392,28 +392,38 @@ router.post("/craft", (req, res) => {
 
 // 어드민 - 레시피 등록
 router.post("/admin/craft-definition", (req, res) => {
-  const { craftId, itemCode, currencyType1, cost1, currencyType2, cost2 } = req.body;
+  const { craftId, itemCode, currencyType1, cost1, currencyType2, cost2, currencyType3, cost3 } = req.body;
   const validCurrencies = ["academicCurrency", "extraCurrency", "idleCurrency"];
 
   if (!craftId || !itemCode || !validCurrencies.includes(currencyType1) || cost1 == null)
     return res.status(400).json({ error: "craftId, itemCode, currencyType1, cost1 required" });
   if (currencyType2 && !validCurrencies.includes(currencyType2))
     return res.status(400).json({ error: `currencyType2 must be one of: ${validCurrencies.join(", ")}` });
+  if (currencyType3 && !validCurrencies.includes(currencyType3))
+    return res.status(400).json({ error: `currencyType3 must be one of: ${validCurrencies.join(", ")}` });
 
   try {
     const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
     if (!itemDef) return res.status(404).json({ error: "Item not found" });
 
+    // ✅ Consumable 타입만 등록 가능
+    if (itemDef.itemType !== "Consumable")
+      return res.status(400).json({ error: "소모성(Consumable) 아이템만 레시피 등록 가능합니다." });
+
     db.prepare(`
-      INSERT INTO craft_definitions (craftId, itemCode, currencyType1, cost1, currencyType2, cost2)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO craft_definitions (craftId, itemCode, currencyType1, cost1, currencyType2, cost2, currencyType3, cost3)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(craftId) DO UPDATE SET
         itemCode      = excluded.itemCode,
         currencyType1 = excluded.currencyType1,
         cost1         = excluded.cost1,
         currencyType2 = excluded.currencyType2,
-        cost2         = excluded.cost2
-    `).run(craftId, itemCode, currencyType1, cost1, currencyType2 || null, cost2 || 0);
+        cost2         = excluded.cost2,
+        currencyType3 = excluded.currencyType3,
+        cost3         = excluded.cost3
+    `).run(craftId, itemCode, currencyType1, cost1,
+           currencyType2 || null, cost2 || 0,
+           currencyType3 || null, cost3 || 0);
 
     res.json({ success: true });
   } catch (err) {
@@ -470,6 +480,10 @@ router.post("/admin/shop-definition", (req, res) => {
   try {
     const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
     if (!itemDef) return res.status(404).json({ error: "Item not found" });
+
+    // ✅ Consumable 타입만 등록 가능
+    if (itemDef.itemType !== "Consumable")
+      return res.status(400).json({ error: "소모성(Consumable) 아이템만 상점 등록 가능합니다." });
 
     db.prepare(`
       INSERT INTO shop_definitions (shopId, itemCode, currencyType, price)

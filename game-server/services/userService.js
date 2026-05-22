@@ -462,15 +462,19 @@ function craftItem(userId, craftId) {
 
   if (!recipe) return { success: false, message: "존재하지 않는 레시피입니다." };
 
+  // ✅ Consumable 타입만 제작 가능
+  if (recipe.itemType !== "Consumable")
+    return { success: false, message: "소모성 아이템만 제작 가능합니다." };
+
   const user = getOrCreateUser(userId);
 
-  // 재화 확인
-  if (user[recipe.currencyType1] < recipe.cost1) {
+  // 재화 확인 (1~3종류)
+  if (user[recipe.currencyType1] < recipe.cost1)
     return { success: false, message: `${recipe.currencyType1} 재화가 부족합니다.`, current: user };
-  }
-  if (recipe.currencyType2 && recipe.cost2 > 0 && user[recipe.currencyType2] < recipe.cost2) {
+  if (recipe.currencyType2 && recipe.cost2 > 0 && user[recipe.currencyType2] < recipe.cost2)
     return { success: false, message: `${recipe.currencyType2} 재화가 부족합니다.`, current: user };
-  }
+  if (recipe.currencyType3 && recipe.cost3 > 0 && user[recipe.currencyType3] < recipe.cost3)
+    return { success: false, message: `${recipe.currencyType3} 재화가 부족합니다.`, current: user };
 
   // 이미 보유 중인지 확인
   const already = db.prepare(
@@ -486,11 +490,8 @@ function craftItem(userId, craftId) {
         updatedAt = datetime('now')
       WHERE userId = ?
     `).run(recipe.cost1, userId);
-
-    // 소모 로그1
     db.prepare(`
-      INSERT INTO spend_log (userId, currencyType, amount, reason)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO spend_log (userId, currencyType, amount, reason) VALUES (?, ?, ?, ?)
     `).run(userId, recipe.currencyType1, recipe.cost1, `craft:${recipe.itemCode}`);
 
     // 재화2 차감 (있는 경우)
@@ -500,12 +501,21 @@ function craftItem(userId, craftId) {
           updatedAt = datetime('now')
         WHERE userId = ?
       `).run(recipe.cost2, userId);
-
-      // 소모 로그2
       db.prepare(`
-        INSERT INTO spend_log (userId, currencyType, amount, reason)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO spend_log (userId, currencyType, amount, reason) VALUES (?, ?, ?, ?)
       `).run(userId, recipe.currencyType2, recipe.cost2, `craft:${recipe.itemCode}`);
+    }
+
+    // 재화3 차감 (있는 경우)
+    if (recipe.currencyType3 && recipe.cost3 > 0) {
+      db.prepare(`
+        UPDATE users SET ${recipe.currencyType3} = ${recipe.currencyType3} - ?,
+          updatedAt = datetime('now')
+        WHERE userId = ?
+      `).run(recipe.cost3, userId);
+      db.prepare(`
+        INSERT INTO spend_log (userId, currencyType, amount, reason) VALUES (?, ?, ?, ?)
+      `).run(userId, recipe.currencyType3, recipe.cost3, `craft:${recipe.itemCode}`);
     }
 
     // 인벤토리 추가
@@ -575,6 +585,10 @@ function buyItem(userId, shopId) {
   `).get(shopId);
 
   if (!shopItem) return { success: false, message: "상점에 없는 아이템입니다." };
+
+  // ✅ Consumable 타입만 구매 가능
+  if (shopItem.itemType !== "Consumable")
+    return { success: false, message: "소모성 아이템만 구매 가능합니다." };
 
   const user = getOrCreateUser(userId);
 

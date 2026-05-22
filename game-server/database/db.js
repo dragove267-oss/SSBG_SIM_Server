@@ -225,9 +225,9 @@ db.exec(`
   )
 `);
 
-module.exports = db;
-module.exports.INVENTORY_SLOT_COUNT = INVENTORY_SLOT_COUNT;
-module.exports.INVENTORY_PAGE_SIZE = INVENTORY_PAGE_SIZE;
+
+// game-db.js에 추가할 craft_definitions 테이블
+// db.exec() 블록에 추가하세요
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS craft_definitions (
@@ -237,6 +237,15 @@ db.exec(`
     cost1         INTEGER NOT NULL,
     currencyType2 TEXT CHECK(currencyType2 IN ('academicCurrency', 'extraCurrency', 'idleCurrency')),
     cost2         INTEGER DEFAULT 0,
+    currencyType3 TEXT CHECK(currencyType3 IN ('academicCurrency', 'extraCurrency', 'idleCurrency')),
+    cost3         INTEGER DEFAULT 0,
     createdAt     TEXT DEFAULT (datetime('now'))
   )
 `);
+x
+module.exports = db;
+module.exports.INVENTORY_SLOT_COUNT = INVENTORY_SLOT_COUNT;
+module.exports.INVENTORY_PAGE_SIZE = INVENTORY_PAGE_SIZE;
+
+// game-db.js에 추가할 craft_definitions 테이블
+// db.exec() 블록에 추가하세요
