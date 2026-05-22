@@ -452,6 +452,48 @@ function getSpendLog(userId) {
 // 제작
 // ================================================================
 
+// 재화 조합으로 레시피 찾기
+function findRecipe(academic, extra, idle) {
+  // 입력된 재화로 매칭되는 레시피 조회
+  // 0인 재화는 null 또는 0으로 저장되어 있으므로 조건 처리
+  const recipes = db.prepare(`
+    SELECT cd.craftId, cd.itemCode, cd.currencyType1, cd.cost1,
+           cd.currencyType2, cd.cost2, cd.currencyType3, cd.cost3,
+           id.name, id.itemType
+    FROM craft_definitions cd
+    JOIN item_definitions id ON cd.itemCode = id.itemCode
+  `).all();
+
+  // 입력 재화 맵
+  const input = {
+    academicCurrency: academic,
+    extraCurrency:    extra,
+    idleCurrency:     idle
+  };
+
+  for (const recipe of recipes) {
+    // 레시피 재화 맵 생성
+    const required = {};
+    if (recipe.currencyType1 && recipe.cost1 > 0)
+      required[recipe.currencyType1] = (required[recipe.currencyType1] || 0) + recipe.cost1;
+    if (recipe.currencyType2 && recipe.cost2 > 0)
+      required[recipe.currencyType2] = (required[recipe.currencyType2] || 0) + recipe.cost2;
+    if (recipe.currencyType3 && recipe.cost3 > 0)
+      required[recipe.currencyType3] = (required[recipe.currencyType3] || 0) + recipe.cost3;
+
+    // 입력값과 레시피 재화 완전 일치 확인
+    const inputKeys   = Object.keys(input).filter(k => input[k] > 0);
+    const requiredKeys = Object.keys(required);
+
+    if (inputKeys.length !== requiredKeys.length) continue;
+
+    const match = requiredKeys.every(k => input[k] === required[k]);
+    if (match) return { success: true, craftId: recipe.craftId, name: recipe.name };
+  }
+
+  return { success: false, message: "해당 재화 조합으로 만들 수 있는 아이템이 없습니다." };
+}
+
 function craftItem(userId, craftId) {
   const recipe = db.prepare(`
     SELECT cd.*, id.name, id.itemType
@@ -659,6 +701,7 @@ module.exports = {
   getCollection,
   getUnlockedItemCodes,
   craftItem,
+  findRecipe,
   getShop,
   buyItem,
   purchaseItem,

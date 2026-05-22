@@ -26,6 +26,7 @@ const {
   getCollection,
   getUnlockedItemCodes,
   craftItem,
+  findRecipe,
   getShop,
   buyItem,
   VALID_ITEM_TYPES
@@ -385,6 +386,19 @@ router.post("/craft", (req, res) => {
     const result = craftItem(userId, craftId);
     if (result.current) result.current = userWithStudentId(result.current);
     res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 재화 조합으로 레시피 찾기
+// academic, extra, idle 중 사용하지 않는 재화는 0으로 보내면 됨
+router.post("/craft/find", (req, res) => {
+  const { academic = 0, extra = 0, idle = 0 } = req.body;
+  if (academic === 0 && extra === 0 && idle === 0)
+    return res.status(400).json({ error: "최소 하나의 재화를 입력해야 합니다." });
+  try {
+    res.json(findRecipe(academic, extra, idle));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
