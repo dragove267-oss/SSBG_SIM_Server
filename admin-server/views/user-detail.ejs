@@ -25,14 +25,12 @@
                     <div class="mb-3 p-3 bg-light rounded border">
                         <label class="form-label small fw-bold text-primary">STUDENT ID (학번 연결)</label>
                         <div class="input-group">
-                            <input type="text" name="studentId" class="form-control fw-bold border-primary" value="<%= user.studentId || '' %>" placeholder="학번 입력">
-                            <% if(user.studentId) { %>
-                                <a href="/academic/<%= user.studentId %>" class="btn btn-outline-primary" title="학사 데이터 바로가기">
-                                    <i class="bi bi-box-arrow-in-right"></i>
-                                </a>
-                            <% } %>
+                            <input type="text" class="form-control fw-bold border-primary text-secondary bg-white" value="<%= user.userId %>" readonly>
+                            <a href="/academic/<%= user.userId %>" class="btn btn-primary" title="학사 데이터 바로가기">
+                                <i class="bi bi-box-arrow-in-right"></i>
+                            </a>
                         </div>
-                        <small class="text-muted mt-1 d-block">학번을 입력하면 해당 유저와 학사 데이터가 연결됩니다.</small>
+                        <small class="text-muted mt-1 d-block">userId와 학번이 직접 연결되어 있습니다.</small>
                     </div>
                     <hr>
                     <div class="mb-2">

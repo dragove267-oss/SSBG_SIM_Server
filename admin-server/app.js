@@ -30,23 +30,62 @@ function connectDBs() {
             )
         `);
 
-        db.exec(`
-            CREATE TABLE IF NOT EXISTS item_definitions (
-                itemCode     TEXT PRIMARY KEY,
-                name         TEXT NOT NULL,
-                description  TEXT DEFAULT '',
-                itemType     TEXT NOT NULL DEFAULT 'relic',
-                cosmeticSlot TEXT,
-                createdAt    TEXT DEFAULT (datetime('now'))
-            )
-        `);
+        // check item_definitions schema to prevent uppercase 'Relic' CHECK constraint issues from game-server
+        let recreateItemDefinitions = false;
+        try {
+            const schema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='item_definitions'").get();
+            if (schema && schema.sql.includes("'Relic'")) {
+                recreateItemDefinitions = true;
+            }
+        } catch (e) {}
+
+        if (recreateItemDefinitions) {
+            try {
+                console.log("[Admin] Mismatched item_definitions schema ('Relic' CHECK constraint) detected. Recreating table...");
+                const data = db.prepare("SELECT * FROM item_definitions").all();
+                db.exec("DROP TABLE item_definitions");
+                db.exec(`
+                    CREATE TABLE item_definitions (
+                        itemCode     TEXT PRIMARY KEY,
+                        name         TEXT NOT NULL,
+                        description  TEXT DEFAULT '',
+                        itemType     TEXT NOT NULL DEFAULT 'relic'
+                                     CHECK(itemType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'relic')),
+                        cosmeticSlot TEXT,
+                        createdAt    TEXT DEFAULT (datetime('now'))
+                    )
+                `);
+                const insert = db.prepare("INSERT OR REPLACE INTO item_definitions (itemCode, name, description, itemType, cosmeticSlot, createdAt) VALUES (?, ?, ?, ?, ?, ?)");
+                for (const row of data) {
+                    const it = row.itemType === 'Relic' ? 'relic' : row.itemType;
+                    insert.run(row.itemCode, row.name, row.description, it, row.cosmeticSlot, row.createdAt);
+                }
+                console.log("[Admin] Recreated item_definitions table successfully and migrated data.");
+            } catch (err) {
+                console.error("[Admin] item_definitions 스키마 변경 실패:", err.message);
+            }
+        } else {
+            db.exec(`
+                CREATE TABLE IF NOT EXISTS item_definitions (
+                    itemCode     TEXT PRIMARY KEY,
+                    name         TEXT NOT NULL,
+                    description  TEXT DEFAULT '',
+                    itemType     TEXT NOT NULL DEFAULT 'relic'
+                                 CHECK(itemType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'relic')),
+                    cosmeticSlot TEXT,
+                    createdAt    TEXT DEFAULT (datetime('now'))
+                )
+            `);
+        }
+
 
         db.exec(`
             CREATE TABLE IF NOT EXISTS item_options (
                 optionCode   TEXT PRIMARY KEY,
                 name         TEXT NOT NULL,
                 description  TEXT DEFAULT '',
-                valueType    TEXT NOT NULL DEFAULT 'multiplier',
+                valueType    TEXT NOT NULL DEFAULT 'multiplier'
+                             CHECK(valueType IN ('multiplier', 'flat', 'chance')),
                 defaultValue REAL NOT NULL DEFAULT 1.0,
                 createdAt    TEXT DEFAULT (datetime('now'))
             )
@@ -63,6 +102,102 @@ function connectDBs() {
             )
         `);
 
+        // 어드민 쿼리에 필요한 추가 테이블들 안전하게 자동 생성
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS user_inventory (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                userId     TEXT NOT NULL,
+                itemCode   TEXT NOT NULL REFERENCES item_definitions(itemCode),
+                slotIndex  INTEGER NOT NULL CHECK(slotIndex >= 0 AND slotIndex < 80),
+                isEquipped INTEGER NOT NULL DEFAULT 0 CHECK(isEquipped IN (0, 1)),
+                obtainedAt TEXT DEFAULT (datetime('now')),
+                UNIQUE(userId, itemCode),
+                UNIQUE(userId, slotIndex)
+            )
+        `);
+
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS daily_play_log (
+                id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+                userId                   TEXT NOT NULL,
+                date                     TEXT NOT NULL,
+                exp_gained               INTEGER DEFAULT 0,
+                academic_currency_gained INTEGER DEFAULT 0,
+                extra_currency_gained    INTEGER DEFAULT 0,
+                idle_currency_gained     INTEGER DEFAULT 0,
+                play_minutes             INTEGER DEFAULT 0
+            )
+        `);
+
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS academic_change_log (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                userId     TEXT NOT NULL,
+                changeType TEXT NOT NULL,
+                detail     TEXT NOT NULL,
+                deltaExtra INTEGER DEFAULT 0,
+                deltaExp   INTEGER DEFAULT 0,
+                isRead     INTEGER DEFAULT 0,
+                createdAt  TEXT DEFAULT (datetime('now'))
+            )
+        `);
+
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS academic_attendance (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                userId     TEXT NOT NULL,
+                week       INTEGER NOT NULL,
+                status     TEXT NOT NULL CHECK(status IN ('출석', '지각', '조퇴', '결석', '미제출')),
+                recordedAt TEXT DEFAULT (datetime('now')),
+                UNIQUE(userId, week)
+            )
+        `);
+
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS academic_assignment (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                userId     TEXT NOT NULL,
+                name       TEXT NOT NULL,
+                status     TEXT NOT NULL CHECK(status IN ('제출', '미제출')),
+                recordedAt TEXT DEFAULT (datetime('now')),
+                UNIQUE(userId, name)
+            )
+        `);
+
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS item_definition_options (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                itemCode   TEXT NOT NULL REFERENCES item_definitions(itemCode),
+                optionCode TEXT NOT NULL REFERENCES item_options(optionCode),
+                value      REAL NOT NULL,
+                UNIQUE(itemCode, optionCode)
+            )
+        `);
+
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS shop_definitions (
+                shopId       TEXT PRIMARY KEY,
+                itemCode     TEXT NOT NULL REFERENCES item_definitions(itemCode),
+                currencyType TEXT NOT NULL CHECK(currencyType IN ('academicCurrency', 'extraCurrency', 'idleCurrency')),
+                price        INTEGER NOT NULL,
+                createdAt    TEXT DEFAULT (datetime('now'))
+            )
+        `);
+
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS craft_definitions (
+                craftId       TEXT PRIMARY KEY,
+                itemCode      TEXT NOT NULL REFERENCES item_definitions(itemCode),
+                currencyType1 TEXT NOT NULL CHECK(currencyType1 IN ('academicCurrency', 'extraCurrency', 'idleCurrency')),
+                cost1         INTEGER NOT NULL,
+                currencyType2 TEXT CHECK(currencyType2 IN ('academicCurrency', 'extraCurrency', 'idleCurrency')),
+                cost2         INTEGER DEFAULT 0,
+                currencyType3 TEXT CHECK(currencyType3 IN ('academicCurrency', 'extraCurrency', 'idleCurrency')),
+                cost3         INTEGER DEFAULT 0,
+                createdAt     TEXT DEFAULT (datetime('now'))
+            )
+        `);
+
         db.prepare(`
             INSERT OR IGNORE INTO item_options (optionCode, name, description, valueType, defaultValue)
             VALUES
@@ -70,7 +205,11 @@ function connectDBs() {
                 ('CURRENCY_EXP_RATE',       'EXP 배율',              'EXP 획득량 배율 증가',           'multiplier', 1.2),
                 ('CURRENCY_ACADEMIC_RATE',  'Academic 재화 배율',    'Academic 재화 획득량 배율 증가', 'multiplier', 1.2),
                 ('REWARD_ATTENDANCE_BONUS', '출석 보상 증가',        '출석 시 보상 추가 지급',         'flat',       50.0),
-                ('REWARD_ASSIGNMENT_BONUS', '과제 보상 증가',        '과제 제출 시 보상 추가 지급',    'flat',       30.0)
+                ('REWARD_ASSIGNMENT_BONUS', '과제 보상 증가',        '과제 제출 시 보상 추가 지급',    'flat',       30.0),
+                ('ITEM_DROP_RATE',          '아이템 획득 확률 증가', '아이템 드롭 확률 증가',          'chance',     0.05),
+                ('ITEM_RARE_RATE',          '희귀 아이템 확률 증가', '희귀 등급 이상 드롭 확률 증가', 'chance',     0.03),
+                ('CONSUMABLE_EXTRA_RATE',   '소모성 Extra 배율',     '소모 시 Extra 재화 배율 증가',   'multiplier', 1.5),
+                ('CONSUMABLE_EXP_RATE',     '소모성 EXP 배율',       '소모 시 EXP 배율 증가',          'multiplier', 1.5)
         `).run();
 
         // 학사 서버용 테이블 (studentId → userId 통일)
@@ -167,9 +306,13 @@ app.get("/users/:userId", (req, res) => {
         } catch (e) {}
         try {
             collections = db.prepare(`
-                SELECT cd.*, IFNULL(uc.isUnlocked, 0) as isUnlocked, uc.unlockedAt
-                FROM collection_definitions cd
-                LEFT JOIN user_collection uc ON cd.collectionCode = uc.collectionCode AND uc.userId = ?
+                SELECT id.itemCode AS collectionCode, id.name,
+                       CASE WHEN ui.itemCode IS NOT NULL THEN 1 ELSE 0 END AS isUnlocked,
+                       ui.obtainedAt AS unlockedAt
+                FROM item_definitions id
+                LEFT JOIN user_inventory ui ON id.itemCode = ui.itemCode AND ui.userId = ?
+                WHERE id.itemType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable')
+                ORDER BY id.itemCode ASC
             `).all(userId);
         } catch (e) {}
 
@@ -268,10 +411,21 @@ app.post("/academic/:userId/attendance/update", async (req, res) => {
     const { userId } = req.params;
     const { id, status } = req.body;
     try {
+        const record = schoolDb.prepare("SELECT week FROM attendance WHERE id = ?").get(id);
+        
         schoolDb.prepare(
             "UPDATE attendance SET status = ? WHERE id = ? AND userId = ?"
         ).run(status, id, userId);
-        if (status === "출석") await triggerRewardSync(userId, "attendance");
+
+        if (record) {
+            db.prepare(`
+                INSERT INTO academic_attendance (userId, week, status)
+                VALUES (?, ?, ?)
+                ON CONFLICT(userId, week) DO UPDATE SET status = excluded.status, recordedAt = datetime('now')
+            `).run(userId, record.week, status);
+        }
+
+        await triggerRewardSync(userId, "attendance");
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -282,9 +436,17 @@ app.post("/academic/:userId/attendance/delete", async (req, res) => {
     const { userId } = req.params;
     const { id } = req.body;
     try {
+        const record = schoolDb.prepare("SELECT week FROM attendance WHERE id = ? AND userId = ?").get(id, userId);
+        
         schoolDb.prepare(
             "DELETE FROM attendance WHERE id = ? AND userId = ?"
         ).run(id, userId);
+
+        if (record) {
+            db.prepare("DELETE FROM academic_attendance WHERE userId = ? AND week = ?").run(userId, record.week);
+        }
+
+        await triggerRewardSync(userId, "attendance");
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -309,10 +471,21 @@ app.post("/academic/:userId/assignment/update", async (req, res) => {
     const { userId } = req.params;
     const { id, status } = req.body;
     try {
+        const record = schoolDb.prepare("SELECT name FROM assignment WHERE id = ?").get(id);
+
         schoolDb.prepare(
             "UPDATE assignment SET status = ? WHERE id = ? AND userId = ?"
         ).run(status, id, userId);
-        if (status === "제출") await triggerRewardSync(userId, "assignment");
+
+        if (record) {
+            db.prepare(`
+                INSERT INTO academic_assignment (userId, name, status)
+                VALUES (?, ?, ?)
+                ON CONFLICT(userId, name) DO UPDATE SET status = excluded.status, recordedAt = datetime('now')
+            `).run(userId, record.name, status);
+        }
+
+        await triggerRewardSync(userId, "assignment");
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -323,9 +496,17 @@ app.post("/academic/:userId/assignment/delete", async (req, res) => {
     const { userId } = req.params;
     const { id } = req.body;
     try {
+        const record = schoolDb.prepare("SELECT name FROM assignment WHERE id = ? AND userId = ?").get(id, userId);
+
         schoolDb.prepare(
             "DELETE FROM assignment WHERE id = ? AND userId = ?"
         ).run(id, userId);
+
+        if (record) {
+            db.prepare("DELETE FROM academic_assignment WHERE userId = ? AND name = ?").run(userId, record.name);
+        }
+
+        await triggerRewardSync(userId, "assignment");
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -353,6 +534,12 @@ app.post("/users/:userId/inventory/add", (req, res) => {
     const { userId } = req.params;
     const { itemCode, slotIndex } = req.body;
     try {
+        // 아이템 코드 유효성 검증
+        const itemExists = db.prepare("SELECT 1 FROM item_definitions WHERE itemCode = ?").get(itemCode);
+        if (!itemExists) {
+            return res.send("<script>alert('존재하지 않는 아이템 코드입니다. 아이템 도감에 먼저 등록해주세요.'); history.back();</script>");
+        }
+
         db.prepare(
             "INSERT INTO user_inventory (userId, itemCode, slotIndex, isEquipped) VALUES (?, ?, ?, 0)"
         ).run(userId, itemCode, slotIndex);
@@ -378,17 +565,53 @@ app.post("/users/:userId/collection/save", (req, res) => {
     const { unlockedCodes } = req.body;
     try {
         const transaction = db.transaction(() => {
-            db.prepare("DELETE FROM user_collection WHERE userId = ?").run(userId);
-            if (unlockedCodes && unlockedCodes.length > 0) {
-                const insert = db.prepare(
-                    "INSERT INTO user_collection (userId, collectionCode, isUnlocked, unlockedAt) VALUES (?, ?, 1, datetime('now'))"
-                );
-                for (const code of unlockedCodes) insert.run(userId, code);
+            // 1. Get current inventory itemCodes
+            const currentInventory = db.prepare("SELECT itemCode, slotIndex FROM user_inventory WHERE userId = ?").all(userId);
+            const currentCodes = currentInventory.map(i => i.itemCode);
+            
+            // 2. Identify codes to add and codes to remove
+            const targetCodes = unlockedCodes || [];
+            const codesToAdd = targetCodes.filter(code => !currentCodes.includes(code));
+            
+            const collectionTypes = ['Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable'];
+            const codesToRemove = currentInventory.filter(item => {
+                const itemDef = db.prepare("SELECT itemType FROM item_definitions WHERE itemCode = ?").get(item.itemCode);
+                return itemDef && collectionTypes.includes(itemDef.itemType) && !targetCodes.includes(item.itemCode);
+            });
+            
+            // 3. Remove unchecked items from inventory
+            if (codesToRemove.length > 0) {
+                const deleteStmt = db.prepare("DELETE FROM user_inventory WHERE userId = ? AND itemCode = ?");
+                for (const item of codesToRemove) {
+                    deleteStmt.run(userId, item.itemCode);
+                }
+            }
+            
+            // 4. Add checked items to inventory
+            if (codesToAdd.length > 0) {
+                // Find empty slots
+                const usedSlots = db.prepare("SELECT slotIndex FROM user_inventory WHERE userId = ?").all(userId).map(r => r.slotIndex);
+                let emptySlots = [];
+                for (let i = 0; i < 80; i++) {
+                    if (!usedSlots.includes(i) && !emptySlots.includes(i)) {
+                        emptySlots.push(i);
+                    }
+                }
+                
+                const insertStmt = db.prepare("INSERT INTO user_inventory (userId, itemCode, slotIndex, isEquipped) VALUES (?, ?, ?, 0)");
+                for (let i = 0; i < codesToAdd.length; i++) {
+                    if (i < emptySlots.length) {
+                        insertStmt.run(userId, codesToAdd[i], emptySlots[i]);
+                    } else {
+                        throw new Error("인벤토리가 가득 차서 도감 아이템을 추가할 수 없습니다.");
+                    }
+                }
             }
         });
         transaction();
         res.json({ success: true });
     } catch (err) {
+        console.error("Save collection error:", err.message);
         res.status(500).json({ error: err.message });
     }
 });
@@ -427,7 +650,19 @@ app.post("/items/add", (req, res) => {
 app.post("/items/delete", (req, res) => {
     const { itemCode } = req.body;
     try {
-        db.prepare("DELETE FROM item_definitions WHERE itemCode = ?").run(itemCode);
+        const transaction = db.transaction(() => {
+            // 연관된 옵션 설정 삭제
+            db.prepare("DELETE FROM item_definition_options WHERE itemCode = ?").run(itemCode);
+            // 유저 인벤토리에서 해당 아이템 삭제
+            db.prepare("DELETE FROM user_inventory WHERE itemCode = ?").run(itemCode);
+            // 상점 등록 정보 삭제
+            db.prepare("DELETE FROM shop_definitions WHERE itemCode = ?").run(itemCode);
+            // 제작 레시피 삭제
+            db.prepare("DELETE FROM craft_definitions WHERE itemCode = ?").run(itemCode);
+            // 도감 마스터 삭제
+            db.prepare("DELETE FROM item_definitions WHERE itemCode = ?").run(itemCode);
+        });
+        transaction();
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ success: false, error: err.message });
