@@ -25,6 +25,7 @@ const {
   unlockCollection,
   getCollection,
   getUnlockedItemCodes,
+  craftItem,
   getShop,
   buyItem,
   VALID_ITEM_TYPES
@@ -50,7 +51,7 @@ function isResetDoneToday(userId) {
   return !!row;
 }
 
-//  userId 값을 studentId로도 포함해서 반환 (블루프린트 호환)
+// ✅ userId 값을 studentId로도 포함해서 반환 (블루프린트 호환)
 function userWithStudentId(user) {
   return { ...user, studentId: user.userId };
 }
@@ -123,7 +124,7 @@ router.post("/login", async (req, res) => {
 
     res.json({
       success: true,
-      // studentId 포함 (블루프린트 호환)
+      // ✅ studentId 포함 (블루프린트 호환)
       user: userWithStudentId(user),
       Data: {
         studentId:        user.userId,
@@ -373,6 +374,64 @@ router.get("/user-options/:userId", (req, res) => {
 });
 
 // ================================================================
+// 제작
+// ================================================================
+
+router.post("/craft", (req, res) => {
+  const { userId, craftId } = req.body;
+  if (!userId || !craftId)
+    return res.status(400).json({ error: "userId, craftId required" });
+  try {
+    const result = craftItem(userId, craftId);
+    if (result.current) result.current = userWithStudentId(result.current);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 어드민 - 레시피 등록
+router.post("/admin/craft-definition", (req, res) => {
+  const { craftId, itemCode, currencyType1, cost1, currencyType2, cost2 } = req.body;
+  const validCurrencies = ["academicCurrency", "extraCurrency", "idleCurrency"];
+
+  if (!craftId || !itemCode || !validCurrencies.includes(currencyType1) || cost1 == null)
+    return res.status(400).json({ error: "craftId, itemCode, currencyType1, cost1 required" });
+  if (currencyType2 && !validCurrencies.includes(currencyType2))
+    return res.status(400).json({ error: `currencyType2 must be one of: ${validCurrencies.join(", ")}` });
+
+  try {
+    const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
+    if (!itemDef) return res.status(404).json({ error: "Item not found" });
+
+    db.prepare(`
+      INSERT INTO craft_definitions (craftId, itemCode, currencyType1, cost1, currencyType2, cost2)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(craftId) DO UPDATE SET
+        itemCode      = excluded.itemCode,
+        currencyType1 = excluded.currencyType1,
+        cost1         = excluded.cost1,
+        currencyType2 = excluded.currencyType2,
+        cost2         = excluded.cost2
+    `).run(craftId, itemCode, currencyType1, cost1, currencyType2 || null, cost2 || 0);
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 어드민 - 레시피 삭제
+router.delete("/admin/craft-definition/:craftId", (req, res) => {
+  try {
+    db.prepare("DELETE FROM craft_definitions WHERE craftId = ?").run(req.params.craftId);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================================================================
 // 상점
 // ================================================================
 
@@ -441,7 +500,7 @@ router.delete("/admin/shop-definition/:shopId", (req, res) => {
 // 도감
 // ================================================================
 
-//  도감 전체 조회
+// ✅ 도감 전체 조회
 // item_definitions 전체 기준, user_inventory 보유 여부로 isUnlocked 판정
 router.get("/collection/:userId", (req, res) => {
   const { type } = req.query;
@@ -454,7 +513,7 @@ router.get("/collection/:userId", (req, res) => {
   }
 });
 
-//  해금된 itemCode 목록만 반환 (언리얼 아이템 테이블 비교용)
+// ✅ 해금된 itemCode 목록만 반환 (언리얼 아이템 테이블 비교용)
 // = 유저가 가방에 보유한 아이템 코드 목록
 router.get("/collection/:userId/unlocked", (req, res) => {
   const { type } = req.query;

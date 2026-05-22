@@ -227,4 +227,16 @@ db.exec(`
 
 module.exports = db;
 module.exports.INVENTORY_SLOT_COUNT = INVENTORY_SLOT_COUNT;
-module.exports.INVENTORY_PAGE_SIZE  = INVENTORY_PAGE_SIZE;
+module.exports.INVENTORY_PAGE_SIZE = INVENTORY_PAGE_SIZE;
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS craft_definitions (
+    craftId       TEXT PRIMARY KEY,
+    itemCode      TEXT NOT NULL REFERENCES item_definitions(itemCode),
+    currencyType1 TEXT NOT NULL CHECK(currencyType1 IN ('academicCurrency', 'extraCurrency', 'idleCurrency')),
+    cost1         INTEGER NOT NULL,
+    currencyType2 TEXT CHECK(currencyType2 IN ('academicCurrency', 'extraCurrency', 'idleCurrency')),
+    cost2         INTEGER DEFAULT 0,
+    createdAt     TEXT DEFAULT (datetime('now'))
+  )
+`);

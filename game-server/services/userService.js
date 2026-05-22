@@ -8,7 +8,7 @@ const REWARD_CONFIG = {
 
 const INVENTORY_SLOT_COUNT = 80;
 
-// relic 포함
+// ✅ relic 포함
 const VALID_ITEM_TYPES = ['Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'relic'];
 
 // ================================================================
@@ -355,7 +355,7 @@ function getUserAllOptions(userId) {
 // 도감
 // ================================================================
 
-// item_definitions 전체 기준
+// ✅ item_definitions 전체 기준
 //    user_inventory에 있으면 isUnlocked = 1 (해금)
 //    없으면 isUnlocked = 0 (미해금)
 // collectionType: null = 전체 / 'Hat' / 'Bag' / 'Clothes' / 'Theme' / 'Friend' / 'Consumable' / 'relic'
@@ -388,7 +388,7 @@ function getCollection(userId, collectionType) {
     : db.prepare(query).all(userId);
 }
 
-// 해금된 itemCode 목록만 반환
+// ✅ 해금된 itemCode 목록만 반환
 //    = 유저가 가방에 보유한 아이템
 function getUnlockedItemCodes(userId, collectionType) {
   const query = collectionType
@@ -446,6 +446,99 @@ function getSpendLog(userId) {
   return db.prepare(`
     SELECT * FROM spend_log WHERE userId = ? ORDER BY spentAt DESC LIMIT 50
   `).all(userId);
+}
+
+// ================================================================
+// 제작
+// ================================================================
+
+function craftItem(userId, craftId) {
+  const recipe = db.prepare(`
+    SELECT cd.*, id.name, id.itemType
+    FROM craft_definitions cd
+    JOIN item_definitions id ON cd.itemCode = id.itemCode
+    WHERE cd.craftId = ?
+  `).get(craftId);
+
+  if (!recipe) return { success: false, message: "존재하지 않는 레시피입니다." };
+
+  const user = getOrCreateUser(userId);
+
+  // 재화 확인
+  if (user[recipe.currencyType1] < recipe.cost1) {
+    return { success: false, message: `${recipe.currencyType1} 재화가 부족합니다.`, current: user };
+  }
+  if (recipe.currencyType2 && recipe.cost2 > 0 && user[recipe.currencyType2] < recipe.cost2) {
+    return { success: false, message: `${recipe.currencyType2} 재화가 부족합니다.`, current: user };
+  }
+
+  // 이미 보유 중인지 확인
+  const already = db.prepare(
+    "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
+  ).get(userId, recipe.itemCode);
+  if (already) return { success: false, message: "이미 보유한 아이템입니다." };
+
+  // 트랜잭션으로 재화 차감 + 아이템 지급
+  const craftTransaction = db.transaction(() => {
+    // 재화1 차감
+    db.prepare(`
+      UPDATE users SET ${recipe.currencyType1} = ${recipe.currencyType1} - ?,
+        updatedAt = datetime('now')
+      WHERE userId = ?
+    `).run(recipe.cost1, userId);
+
+    // 소모 로그1
+    db.prepare(`
+      INSERT INTO spend_log (userId, currencyType, amount, reason)
+      VALUES (?, ?, ?, ?)
+    `).run(userId, recipe.currencyType1, recipe.cost1, `craft:${recipe.itemCode}`);
+
+    // 재화2 차감 (있는 경우)
+    if (recipe.currencyType2 && recipe.cost2 > 0) {
+      db.prepare(`
+        UPDATE users SET ${recipe.currencyType2} = ${recipe.currencyType2} - ?,
+          updatedAt = datetime('now')
+        WHERE userId = ?
+      `).run(recipe.cost2, userId);
+
+      // 소모 로그2
+      db.prepare(`
+        INSERT INTO spend_log (userId, currencyType, amount, reason)
+        VALUES (?, ?, ?, ?)
+      `).run(userId, recipe.currencyType2, recipe.cost2, `craft:${recipe.itemCode}`);
+    }
+
+    // 인벤토리 추가
+    const usedSlots = db.prepare(
+      "SELECT slotIndex FROM user_inventory WHERE userId = ?"
+    ).all(userId).map(r => r.slotIndex);
+
+    let emptySlot = null;
+    for (let i = 0; i < INVENTORY_SLOT_COUNT; i++) {
+      if (!usedSlots.includes(i)) { emptySlot = i; break; }
+    }
+    if (emptySlot === null) throw new Error("인벤토리가 가득 찼습니다.");
+
+    db.prepare(`
+      INSERT INTO user_inventory (userId, itemCode, slotIndex, isEquipped)
+      VALUES (?, ?, ?, 0)
+    `).run(userId, recipe.itemCode, emptySlot);
+
+    return emptySlot;
+  });
+
+  try {
+    const slotIndex = craftTransaction();
+    const updated = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
+    return {
+      success: true,
+      item: { itemCode: recipe.itemCode, name: recipe.name, itemType: recipe.itemType },
+      slotIndex,
+      current: updated
+    };
+  } catch (err) {
+    return { success: false, message: err.message };
+  }
 }
 
 // ================================================================
@@ -551,6 +644,7 @@ module.exports = {
   applyOptionToAmount,
   getCollection,
   getUnlockedItemCodes,
+  craftItem,
   getShop,
   buyItem,
   purchaseItem,
