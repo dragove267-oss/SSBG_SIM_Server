@@ -251,6 +251,47 @@ function addItemToInventory(userId, itemCode) {
   return { success: true, slotIndex: emptySlot, item: itemDef };
 }
 
+// Consumable 전용 장착 (최대 3개, 초과 시 가장 왼쪽 해제)
+function equipConsumable(userId, itemCode) {
+  const invItem = db.prepare(
+    "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
+  ).get(userId, itemCode);
+  if (!invItem) return { success: false, message: "Item not in inventory" };
+
+  const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
+  if (itemDef.itemType !== "Consumable")
+    return { success: false, message: "Consumable 아이템만 이 함수로 장착 가능합니다." };
+
+  // 이미 장착 중인지 확인
+  if (invItem.isEquipped)
+    return { success: false, message: "이미 장착 중인 아이템입니다." };
+
+  // 현재 장착된 Consumable 목록 (slotIndex 오름차순)
+  const equipped = db.prepare(`
+    SELECT ui.id, ui.slotIndex, ui.itemCode
+    FROM user_inventory ui
+    JOIN item_definitions id ON ui.itemCode = id.itemCode
+    WHERE ui.userId = ? AND id.itemType = 'Consumable' AND ui.isEquipped = 1
+    ORDER BY ui.slotIndex ASC
+  `).all(userId);
+
+  // 3개 꽉 찬 경우 가장 왼쪽(slotIndex 가장 작은) 해제
+  if (equipped.length >= 3) {
+    db.prepare(`
+      UPDATE user_inventory SET isEquipped = 0
+      WHERE id = ?
+    `).run(equipped[0].id);
+  }
+
+  // 새 아이템 장착
+  db.prepare(`
+    UPDATE user_inventory SET isEquipped = 1
+    WHERE userId = ? AND itemCode = ?
+  `).run(userId, itemCode);
+
+  return { success: true, equipped: itemCode, unequipped: equipped.length >= 3 ? equipped[0].itemCode : null };
+}
+
 function equipItem(userId, itemCode) {
   const invItem = db.prepare(
     "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
@@ -690,6 +731,7 @@ module.exports = {
   gainCurrency,
   addItemToInventory,
   equipItem,
+  equipConsumable,
   unequipItem,
   getInventory,
   getInventoryByType,
