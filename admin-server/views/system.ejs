@@ -8,13 +8,13 @@
     <div class="col-md-8">
         <div class="card shadow border-left-danger mb-4" style="border-left: 5px solid #e74a3b;">
             <div class="card-header py-3 bg-white">
-                <h6 class="m-0 font-weight-bold text-danger">데이터베이스 전체 초기화</h6>
+                <h6 class="m-0 font-weight-bold text-danger">데이터베이스 유저 데이터 초기화</h6>
             </div>
             <div class="card-body">
-                <p class="text-muted">이 작업은 서버의 모든 데이터(유저 정보, 인벤토리, 학사 데이터, 도감 등)를 <strong>영구적으로 삭제</strong>합니다.</p>
+                <p class="text-muted">이 작업은 서버의 모든 유저 정보, 인벤토리, 학사 데이터, 진행 로그 등을 <strong>영구적으로 삭제</strong>합니다. 단, <strong>등록된 아이템 도감 목록 및 기본 설정 정보는 그대로 보존</strong>됩니다.</p>
                 <div class="alert alert-warning border-0 small">
                     <i class="bi bi-info-circle me-1"></i> 
-                    삭제 후 서버가 자동으로 재시작되며, 비어있는 깨끗한 데이터베이스가 다시 생성됩니다. 스키마 에러가 지속될 때 최후의 수단으로 사용하세요.
+                    초기화 후 서버가 자동으로 재시작되며, 유저 정보가 비어 있는 상태로 다시 시작됩니다.
                 </div>
                 
                 <div class="mt-4">
