@@ -8,7 +8,7 @@ const REWARD_CONFIG = {
 
 const INVENTORY_SLOT_COUNT = 80;
 
-// ✅ relic 포함
+// relic 포함
 const VALID_ITEM_TYPES = ['Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'relic'];
 
 // ================================================================
@@ -23,6 +23,19 @@ function getOrCreateUser(userId) {
        VALUES (?, 0, 0, 0, 0)`
     ).run(userId);
     user = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
+
+    // 기본 아이템 자동 지급 + 장착
+    const defaultItems = ["HAT_000", "CLOTHES_000", "BAG_000"];
+    for (let i = 0; i < defaultItems.length; i++) {
+      const itemCode = defaultItems[i];
+      const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
+      if (!itemDef) continue;
+
+      db.prepare(`
+        INSERT OR IGNORE INTO user_inventory (userId, itemCode, slotIndex, isEquipped)
+        VALUES (?, ?, ?, 1)
+      `).run(userId, itemCode, i);
+    }
   }
   return user;
 }
@@ -396,7 +409,7 @@ function getUserAllOptions(userId) {
 // 도감
 // ================================================================
 
-// ✅ item_definitions 전체 기준
+//  item_definitions 전체 기준
 //    user_inventory에 있으면 isUnlocked = 1 (해금)
 //    없으면 isUnlocked = 0 (미해금)
 // collectionType: null = 전체 / 'Hat' / 'Bag' / 'Clothes' / 'Theme' / 'Friend' / 'Consumable' / 'relic'
@@ -429,7 +442,7 @@ function getCollection(userId, collectionType) {
     : db.prepare(query).all(userId);
 }
 
-// ✅ 해금된 itemCode 목록만 반환
+//  해금된 itemCode 목록만 반환
 //    = 유저가 가방에 보유한 아이템
 function getUnlockedItemCodes(userId, collectionType) {
   const query = collectionType
@@ -490,6 +503,205 @@ function getSpendLog(userId) {
 }
 
 // ================================================================
+// 꿈상점
+// ================================================================
+
+// 등급 확률 테이블
+const GRADE_RATES = [
+  { grade: "low",  rate: 0.45 },
+  { grade: "mid",  rate: 0.35 },
+  { grade: "high", rate: 0.15 },
+  { grade: "top",  rate: 0.05 },
+];
+
+// 꿈상점 아이템 타입 확률
+const DREAM_SHOP_TYPE_RATES = [
+  { type: "Hat",      rate: 0.25 },
+  { type: "Clothes",  rate: 0.25 },
+  { type: "Bag",      rate: 0.25 },
+  { type: "Theme",    rate: 0.20 },
+  { type: "Friend",   rate: 0.05 },
+];
+
+// 확률로 등급 결정
+function rollGrade(minGrade = null) {
+  const gradeOrder = ["low", "mid", "high", "top"];
+  const minIdx = minGrade ? gradeOrder.indexOf(minGrade) : 0;
+
+  // 최소 등급 이상만 필터링 후 재확률 계산
+  const filtered = GRADE_RATES.filter((_, i) => i >= minIdx);
+  const total = filtered.reduce((acc, g) => acc + g.rate, 0);
+
+  let rand = Math.random() * total;
+  for (const g of filtered) {
+    rand -= g.rate;
+    if (rand <= 0) return g.grade;
+  }
+  return filtered[filtered.length - 1].grade;
+}
+
+// 확률로 아이템 타입 결정
+function rollItemType() {
+  let rand = Math.random();
+  for (const t of DREAM_SHOP_TYPE_RATES) {
+    rand -= t.rate;
+    if (rand <= 0) return t.type;
+  }
+  return "Hat";
+}
+
+// 해당 타입의 랜덤 아이템 선택 (basic 제외)
+function pickRandomItem(itemType) {
+  const items = db.prepare(`
+    SELECT itemCode FROM item_definitions
+    WHERE itemType = ? AND grade != 'basic'
+    ORDER BY RANDOM() LIMIT 1
+  `).get(itemType);
+  return items ? items.itemCode : null;
+}
+
+// 장착된 소모품 효과 계산
+function getEquippedConsumableEffects(userId) {
+  const effects = db.prepare(`
+    SELECT ce.effectType, ce.value
+    FROM user_inventory ui
+    JOIN consumable_effects ce ON ui.itemCode = ce.itemCode
+    JOIN item_definitions id ON ui.itemCode = id.itemCode
+    WHERE ui.userId = ? AND ui.isEquipped = 1 AND id.itemType = 'Consumable'
+  `).all(userId);
+
+  const result = {
+    shop_add_item:    0,
+    shop_add_buy:     0,
+    shop_grade_mid:   0,
+    shop_grade_high:  0,
+  };
+
+  for (const e of effects) {
+    if (result[e.effectType] !== undefined) {
+      result[e.effectType] += e.value;
+    }
+  }
+  return result;
+}
+
+// 꿈상점 생성 (daily-reset 시 호출)
+function generateDreamShop(userId) {
+  const today = new Date().toISOString().slice(0, 10);
+
+  // 이미 오늘 생성된 꿈상점 있으면 반환
+  const existing = db.prepare(
+    "SELECT * FROM dream_shop WHERE userId = ? AND date = ?"
+  ).get(userId, today);
+  if (existing) return { ...existing, items: JSON.parse(existing.items) };
+
+  // 소모품 효과 계산
+  const effects = getEquippedConsumableEffects(userId);
+
+  // 등장 아이템 수 결정
+  // 기본 1개 + 소모품 효과
+  let baseItemCount = 1;
+  const addEffect = effects.shop_add_item;
+  if (addEffect === 1) baseItemCount += 1;
+  else if (addEffect === 2) baseItemCount += Math.random() < 0.5 ? 1 : 2;
+  else if (addEffect === 3) baseItemCount += 2;
+  else if (addEffect === 4) baseItemCount += Math.random() < 0.5 ? 2 : 3;
+  else if (addEffect === 5) baseItemCount += 3;
+
+  // 구매 가능 수 결정
+  const maxBuyCount = 1 + effects.shop_add_buy;
+
+  // 아이템 생성
+  const items = [];
+  const usedCodes = new Set();
+
+  for (let i = 0; i < baseItemCount; i++) {
+    const itemType = rollItemType();
+
+    // 등급 결정 (중급/상급 확정 소모품 효과 적용)
+    let minGrade = null;
+    if (effects.shop_grade_high > 0 && i < effects.shop_grade_high) {
+      minGrade = "high";
+    } else if (effects.shop_grade_mid > 0 && i < effects.shop_grade_mid) {
+      minGrade = "mid";
+    }
+    const grade = rollGrade(minGrade);
+
+    // 중복 없이 아이템 선택
+    let itemCode = null;
+    let tries = 0;
+    while (tries < 10) {
+      itemCode = pickRandomItem(itemType);
+      if (itemCode && !usedCodes.has(itemCode)) break;
+      tries++;
+    }
+    if (!itemCode) continue;
+
+    usedCodes.add(itemCode);
+    items.push({ itemCode, grade, bought: false });
+  }
+
+  // DB 저장
+  db.prepare(`
+    INSERT OR REPLACE INTO dream_shop (userId, date, items, maxBuyCount, usedBuyCount)
+    VALUES (?, ?, ?, ?, 0)
+  `).run(userId, today, JSON.stringify(items), maxBuyCount);
+
+  return { userId, date: today, items, maxBuyCount, usedBuyCount: 0 };
+}
+
+// 꿈상점 조회
+function getDreamShop(userId) {
+  const today = new Date().toISOString().slice(0, 10);
+  const shop = db.prepare(
+    "SELECT * FROM dream_shop WHERE userId = ? AND date = ?"
+  ).get(userId, today);
+
+  if (!shop) return { success: false, message: "오늘의 꿈상점이 없습니다. 정산을 먼저 진행해주세요." };
+
+  return { success: true, ...shop, items: JSON.parse(shop.items) };
+}
+
+// 꿈상점 구매
+function buyDreamShopItem(userId, itemIndex) {
+  const today = new Date().toISOString().slice(0, 10);
+  const shop = db.prepare(
+    "SELECT * FROM dream_shop WHERE userId = ? AND date = ?"
+  ).get(userId, today);
+
+  if (!shop) return { success: false, message: "오늘의 꿈상점이 없습니다." };
+
+  const items = JSON.parse(shop.items);
+
+  if (itemIndex < 0 || itemIndex >= items.length)
+    return { success: false, message: "잘못된 아이템 인덱스입니다." };
+  if (items[itemIndex].bought)
+    return { success: false, message: "이미 구매한 아이템입니다." };
+  if (shop.usedBuyCount >= shop.maxBuyCount)
+    return { success: false, message: "구매 가능 횟수를 초과했습니다." };
+
+  const { itemCode, grade } = items[itemIndex];
+
+  // 인벤토리에 추가
+  const invResult = addItemToInventory(userId, itemCode);
+  if (!invResult.success) return { success: false, message: invResult.message };
+
+  // 구매 처리
+  items[itemIndex].bought = true;
+  db.prepare(`
+    UPDATE dream_shop SET items = ?, usedBuyCount = usedBuyCount + 1
+    WHERE userId = ? AND date = ?
+  `).run(JSON.stringify(items), userId, today);
+
+  return {
+    success: true,
+    itemCode,
+    grade,
+    slotIndex: invResult.slotIndex
+  };
+}
+
+// ================================================================
 // 제작
 // ================================================================
 
@@ -545,7 +757,7 @@ function craftItem(userId, craftId) {
 
   if (!recipe) return { success: false, message: "존재하지 않는 레시피입니다." };
 
-  // ✅ Consumable 타입만 제작 가능
+  //  Consumable 타입만 제작 가능
   if (recipe.itemType !== "Consumable")
     return { success: false, message: "소모성 아이템만 제작 가능합니다." };
 
@@ -669,7 +881,7 @@ function buyItem(userId, shopId) {
 
   if (!shopItem) return { success: false, message: "상점에 없는 아이템입니다." };
 
-  // ✅ Consumable 타입만 구매 가능
+  //  Consumable 타입만 구매 가능
   if (shopItem.itemType !== "Consumable")
     return { success: false, message: "소모성 아이템만 구매 가능합니다." };
 
@@ -742,6 +954,9 @@ module.exports = {
   applyOptionToAmount,
   getCollection,
   getUnlockedItemCodes,
+  generateDreamShop,
+  getDreamShop,
+  buyDreamShopItem,
   craftItem,
   findRecipe,
   getShop,

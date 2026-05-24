@@ -26,6 +26,9 @@ const {
   unlockCollection,
   getCollection,
   getUnlockedItemCodes,
+  generateDreamShop,
+  getDreamShop,
+  buyDreamShopItem,
   craftItem,
   findRecipe,
   getShop,
@@ -53,7 +56,7 @@ function isResetDoneToday(userId) {
   return !!row;
 }
 
-//  userId 값을 studentId로도 포함해서 반환 (블루프린트 호환)
+// userId 값을 studentId로도 포함해서 반환 (블루프린트 호환)
 function userWithStudentId(user) {
   return { ...user, studentId: user.userId };
 }
@@ -126,7 +129,7 @@ router.post("/login", async (req, res) => {
 
     res.json({
       success: true,
-      //  studentId 포함 (블루프린트 호환)
+      // studentId 포함 (블루프린트 호환)
       user: userWithStudentId(user),
       Data: {
         studentId:        user.userId,
@@ -253,11 +256,16 @@ router.post("/daily-reset", async (req, res) => {
 
     db.prepare("INSERT INTO daily_reset_log (userId, resetAt) VALUES (?, datetime('now'))").run(userId);
 
+    // 꿈상점 생성
+    const dreamShop = generateDreamShop(userId);
+
     const user = userWithStudentId(result.user);
     res.json({
       success: true, user, Data: user,
       delta: result.delta, Delta: result.delta, hasChange: result.hasChange,
-      resetDoneToday: true, secondsUntilReset: getSecondsUntilReset(), readyForDreamShop: true
+      resetDoneToday: true, secondsUntilReset: getSecondsUntilReset(),
+      readyForDreamShop: true,
+      dreamShop
     });
   } catch (err) {
     console.error("DAILY RESET ERROR:", err);
@@ -382,6 +390,31 @@ router.get("/item-options/:itemCode", (req, res) => {
 router.get("/user-options/:userId", (req, res) => {
   try {
     res.json({ success: true, options: getUserAllOptions(req.params.userId) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================================================================
+// 꿈상점
+// ================================================================
+
+// 오늘 꿈상점 조회
+router.get("/dream-shop/:userId", (req, res) => {
+  try {
+    res.json(getDreamShop(req.params.userId));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 꿈상점 아이템 구매 (itemIndex: 0부터 시작)
+router.post("/dream-shop/buy", (req, res) => {
+  const { userId, itemIndex } = req.body;
+  if (!userId || itemIndex == null)
+    return res.status(400).json({ error: "userId, itemIndex required" });
+  try {
+    res.json(buyDreamShopItem(userId, itemIndex));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
