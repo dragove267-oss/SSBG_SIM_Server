@@ -533,7 +533,7 @@ router.post("/shop/buy", (req, res) => {
 // 어드민 - 상점 아이템 등록
 router.post("/admin/shop-definition", (req, res) => {
   const { shopId, itemCode, currencyType, price } = req.body;
-  const validCurrencies = ["academicCurrency", "extraCurrency", "idleCurrency"];
+  const validCurrencies = ["academicCurrency", "extraCurrency", "idleCurrency", "exp"];
   if (!shopId || !itemCode || !validCurrencies.includes(currencyType) || price == null)
     return res.status(400).json({ error: "shopId, itemCode, currencyType, price required" });
 

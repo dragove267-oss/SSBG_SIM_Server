@@ -106,15 +106,33 @@ console.log("[Migration] 소모품 아이템 + 효과 등록 완료");
 // ================================================================
 // 6. 상점에 소모품 등록 (exp 소모)
 // ================================================================
-db.exec(`
-  CREATE TABLE IF NOT EXISTS shop_definitions (
-    shopId       TEXT PRIMARY KEY,
-    itemCode     TEXT NOT NULL REFERENCES item_definitions(itemCode),
-    currencyType TEXT NOT NULL CHECK(currencyType IN ('academicCurrency', 'extraCurrency', 'idleCurrency')),
-    price        INTEGER NOT NULL,
-    createdAt    TEXT DEFAULT (datetime('now'))
-  )
-`);
+// 기존 테이블에 exp CHECK 없는 경우 재생성
+try {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shop_definitions_new (
+      shopId       TEXT PRIMARY KEY,
+      itemCode     TEXT NOT NULL REFERENCES item_definitions(itemCode),
+      currencyType TEXT NOT NULL CHECK(currencyType IN ('academicCurrency', 'extraCurrency', 'idleCurrency', 'exp')),
+      price        INTEGER NOT NULL,
+      createdAt    TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  db.exec(`INSERT OR IGNORE INTO shop_definitions_new SELECT * FROM shop_definitions`);
+  db.exec(`DROP TABLE IF EXISTS shop_definitions`);
+  db.exec(`ALTER TABLE shop_definitions_new RENAME TO shop_definitions`);
+  console.log("[Migration] shop_definitions 재생성 완료 (exp 추가)");
+} catch (e) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS shop_definitions (
+      shopId       TEXT PRIMARY KEY,
+      itemCode     TEXT NOT NULL REFERENCES item_definitions(itemCode),
+      currencyType TEXT NOT NULL CHECK(currencyType IN ('academicCurrency', 'extraCurrency', 'idleCurrency', 'exp')),
+      price        INTEGER NOT NULL,
+      createdAt    TEXT DEFAULT (datetime('now'))
+    )
+  `);
+  console.log("[Migration] shop_definitions 신규 생성 완료");
+}
 
 const shopItems = [
   { shopId: "SHOP_001", itemCode: "001", currencyType: "exp", price: 100 },
