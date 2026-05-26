@@ -8,7 +8,6 @@ const REWARD_CONFIG = {
 
 const INVENTORY_SLOT_COUNT = 80;
 
-// relic 포함
 const VALID_ITEM_TYPES = ['Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'relic'];
 
 // ================================================================
@@ -24,7 +23,7 @@ function getOrCreateUser(userId) {
     ).run(userId);
     user = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
 
-    // 기본 아이템 자동 지급 + 장착
+    //  기본 아이템 자동 지급 + 장착
     const defaultItems = ["HAT_000", "CLOTHES_000", "BAG_000"];
     for (let i = 0; i < defaultItems.length; i++) {
       const itemCode = defaultItems[i];
@@ -409,7 +408,7 @@ function getUserAllOptions(userId) {
 // 도감
 // ================================================================
 
-//  item_definitions 전체 기준
+// item_definitions 전체 기준
 //    user_inventory에 있으면 isUnlocked = 1 (해금)
 //    없으면 isUnlocked = 0 (미해금)
 // collectionType: null = 전체 / 'Hat' / 'Bag' / 'Clothes' / 'Theme' / 'Friend' / 'Consumable' / 'relic'
@@ -442,7 +441,7 @@ function getCollection(userId, collectionType) {
     : db.prepare(query).all(userId);
 }
 
-//  해금된 itemCode 목록만 반환
+// 해금된 itemCode 목록만 반환
 //    = 유저가 가방에 보유한 아이템
 function getUnlockedItemCodes(userId, collectionType) {
   const query = collectionType
@@ -506,8 +505,64 @@ function getSpendLog(userId) {
 // 꿈상점
 // ================================================================
 
-// 등급 확률 테이블
-const GRADE_RATES = [
+// 등급별 배율
+const GRADE_MULTIPLIER = {
+  low:  1.1,
+  mid:  1.2,
+  high: 1.3,
+  top:  1.5,
+};
+
+// 아이템 타입별 메인/서브 옵션
+const ITEM_OPTIONS = {
+  Hat:     { main: "CURRENCY_ACADEMIC_RATE", sub: "CURRENCY_EXTRA_RATE" },
+  Clothes: { main: "CURRENCY_EXTRA_RATE",    sub: "CURRENCY_IDLE_RATE" },
+  Bag:     { main: "CURRENCY_IDLE_RATE",     sub: "CURRENCY_ACADEMIC_RATE" },
+  Theme:   { main: "CURRENCY_EXP_RATE",      sub: null },
+  Friend:  { main: null,                     sub: null }, // 별도 처리
+};
+
+// 서브 옵션 등장 확률 (등급별)
+const SUB_OPTION_RATES = {
+  low:  0.0,   // 서브 없음
+  mid:  0.3,   // 30%
+  high: 0.6,   // 60%
+  top:  1.0,   // 100%
+};
+
+// 아이템 옵션 결정
+function resolveItemOptions(itemType, grade) {
+  const multiplier = GRADE_MULTIPLIER[grade] || 1.0;
+  const optionDef  = ITEM_OPTIONS[itemType];
+  if (!optionDef) return [];
+
+  const options = [];
+
+  if (itemType === "Friend") {
+    // 프랜즈 - 모든 재화 2배 확정
+    options.push({ optionCode: "CURRENCY_ACADEMIC_RATE", value: 2.0 });
+    options.push({ optionCode: "CURRENCY_EXTRA_RATE",    value: 2.0 });
+    options.push({ optionCode: "CURRENCY_IDLE_RATE",     value: 2.0 });
+    return options;
+  }
+
+  // 메인 옵션 (확정)
+  if (optionDef.main) {
+    options.push({ optionCode: optionDef.main, value: multiplier });
+  }
+
+  // 서브 옵션 (확률 + 별도 등급 결정)
+  if (optionDef.sub) {
+    const subRate = SUB_OPTION_RATES[grade] || 0;
+    if (Math.random() < subRate) {
+      const subGrade      = rollGrade();                  // 서브 옵션 등급 별도 결정
+      const subMultiplier = GRADE_MULTIPLIER[subGrade];   // 서브 등급에 맞는 배율
+      options.push({ optionCode: optionDef.sub, value: subMultiplier, grade: subGrade });
+    }
+  }
+
+  return options;
+}
   { grade: "low",  rate: 0.45 },
   { grade: "mid",  rate: 0.35 },
   { grade: "high", rate: 0.15 },
@@ -638,7 +693,8 @@ function generateDreamShop(userId) {
     if (!itemCode) continue;
 
     usedCodes.add(itemCode);
-    items.push({ itemCode, grade, bought: false });
+    const options = resolveItemOptions(itemType, grade);
+    items.push({ itemCode, grade, multiplier: GRADE_MULTIPLIER[grade] || 1.0, options, bought: false });
   }
 
   // DB 저장

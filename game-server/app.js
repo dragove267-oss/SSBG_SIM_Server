@@ -3,7 +3,7 @@ const cors = require("cors");
 const cron = require("node-cron");
 const axios = require("axios");
 const db = require("./database/db");
-const { applySchoolReward, syncAttendanceRecords, syncAssignmentRecords } = require("./services/userService");
+const { applySchoolReward, syncAttendanceRecords, syncAssignmentRecords, generateDreamShop } = require("./services/userService");
 
 const app = express();
 const PORT = 3000;
@@ -15,7 +15,7 @@ const gameRouter = require("./routes/game");
 app.use("/api", gameRouter);
 
 // ================================================================
-// 어드민 연동 보상 재계산 API (userId 기준으로 통일)
+// 어드민 연동 보상 재계산 API (userId 기준)
 // ================================================================
 
 app.post("/api/admin/apply-reward", async (req, res) => {
@@ -23,7 +23,7 @@ app.post("/api/admin/apply-reward", async (req, res) => {
   console.log(`[Admin-Sync] 보상 동기화 요청: ${userId} (${type})`);
 
   try {
-    // 1. 학교서버에서 userId로 최신 데이터 가져와서 로컬 DB 동기화
+    // 1. 학교서버에서 userId로 최신 데이터 가져오기 (각각 독립적으로 처리)
     let attendanceList = [];
     let assignmentList = [];
     try {
@@ -39,19 +39,20 @@ app.post("/api/admin/apply-reward", async (req, res) => {
       console.warn(`[Admin-Sync] 과제 데이터 없음: ${userId}`);
     }
 
-    // 로컬 DB 동기화
+    // 2. 로컬 DB 동기화
     syncAttendanceRecords(userId, attendanceList);
     syncAssignmentRecords(userId, assignmentList);
 
-    // 2. 로컬 DB의 실제 유효한 개수 파악
+    // 3. 받아온 리스트에서 직접 유효한 개수 파악
     const currentAttendance = attendanceList.filter(a => a.status === "출석").length;
     const currentAssignment = assignmentList.filter(a => a.status === "제출").length;
 
-    // 3. 해당 타입 스냅샷을 현재보다 1 작게 강제 조정 (보상 1회 트리거 보장)
+    // 4. 스냅샷 초기화 (없으면 생성)
     db.prepare(
       "INSERT OR IGNORE INTO school_snapshots (userId, attendanceCount, assignmentCount) VALUES (?, 0, 0)"
     ).run(userId);
 
+    // 5. 해당 타입 스냅샷을 현재보다 1 작게 강제 조정 (보상 1회 트리거 보장)
     if (type === "attendance") {
       db.prepare("UPDATE school_snapshots SET attendanceCount = ? WHERE userId = ?")
         .run(Math.max(0, currentAttendance - 1), userId);
@@ -60,7 +61,7 @@ app.post("/api/admin/apply-reward", async (req, res) => {
         .run(Math.max(0, currentAssignment - 1), userId);
     }
 
-    // 4. 보상 로직 호출 (applySchoolReward 내부에서 스냅샷과 비교하여 로그를 남김)
+    // 6. 보상 로직 호출
     const result = applySchoolReward(userId, currentAttendance, currentAssignment);
     console.log(`[Admin-Sync] 완료: ${userId}, 보상지급: ${result.hasChange}`);
 
@@ -98,6 +99,7 @@ cron.schedule("0 6 * * *", async () => {
         const assignmentCount = assignmentRes.data.assignment.filter(a => a.status === "제출").length;
 
         applySchoolReward(userId, attendanceCount, assignmentCount);
+        generateDreamShop(userId);  // 꿈상점 생성
 
         db.prepare("INSERT INTO daily_reset_log (userId, resetAt) VALUES (?, datetime('now'))").run(userId);
         console.log(`[Cron] ${userId} - 정산 완료`);
