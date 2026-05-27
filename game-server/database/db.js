@@ -254,7 +254,7 @@ db.exec(`
 // 데이터베이스 자가 치유 및 자동 시딩 (Self-Healing Seeding)
 // ================================================================
 try {
-  const seedDone = db.prepare("SELECT COUNT(*) as count FROM item_definitions WHERE itemCode = '001'").get().count > 0;
+  const seedDone = db.prepare("SELECT COUNT(*) as count FROM item_definitions WHERE itemCode = '001' AND name LIKE '%하늘책%'").get().count > 0;
   if (!seedDone) {
     console.log("[DB] Seeding database with fresh dictionary catalog...");
     
