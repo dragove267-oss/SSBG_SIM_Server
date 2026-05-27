@@ -254,7 +254,7 @@ db.exec(`
 // 데이터베이스 자가 치유 및 자동 시딩 (Self-Healing Seeding)
 // ================================================================
 try {
-  const seedDone = db.prepare("SELECT COUNT(*) as count FROM item_definitions WHERE itemCode = '001' AND name LIKE '%하늘책%'").get().count > 0;
+  const seedDone = db.prepare("SELECT COUNT(*) as count FROM item_definitions WHERE itemCode = '001' AND name = '하늘책'").get().count > 0;
   if (!seedDone) {
     console.log("[DB] Seeding database with fresh dictionary catalog...");
     
@@ -289,16 +289,16 @@ try {
     // 1. 소모품 (0xx)
     console.log("[DB-Seeding] Registering Consumables (0xx)...");
     const consumables = [
-      { itemCode: "001", name: "Book_1 (하늘책)",     effect: "shop_add_item",   val: 1 },
-      { itemCode: "002", name: "Book_2 (파란책)",     effect: "shop_add_item",   val: 2 },
-      { itemCode: "003", name: "Book_3 (은색책)",     effect: "shop_add_item",   val: 3 },
-      { itemCode: "004", name: "Book_4 (금색책)",     effect: "shop_add_item",   val: 4 },
-      { itemCode: "005", name: "Book_5 (보라책)",     effect: "shop_add_item",   val: 5 },
-      { itemCode: "006", name: "Glasses (안경)",      effect: "shop_add_buy",    val: 1 },
-      { itemCode: "007", name: "Pen_1__1_ (오렌지펜)", effect: "shop_grade_mid",  val: 1 },
-      { itemCode: "008", name: "Glasses2 (빛안경)",   effect: "shop_add_buy",    val: 2 },
-      { itemCode: "009", name: "Pen_2_1_ (실버펜)",    effect: "shop_grade_mid",  val: 2 },
-      { itemCode: "010", name: "Pen_3_1_ (골드펜)",    effect: "shop_grade_high", val: 1 },
+      { itemCode: "001", name: "하늘책",     effect: "shop_add_item",   val: 1 },
+      { itemCode: "002", name: "파란책",     effect: "shop_add_item",   val: 2 },
+      { itemCode: "003", name: "은색책",     effect: "shop_add_item",   val: 3 },
+      { itemCode: "004", name: "금색책",     effect: "shop_add_item",   val: 4 },
+      { itemCode: "005", name: "보라책",     effect: "shop_add_item",   val: 5 },
+      { itemCode: "006", name: "안경",      effect: "shop_add_buy",    val: 1 },
+      { itemCode: "007", name: "오렌지펜",   effect: "shop_grade_mid",  val: 1 },
+      { itemCode: "008", name: "빛안경",     effect: "shop_add_buy",    val: 2 },
+      { itemCode: "009", name: "은펜",       effect: "shop_grade_mid",  val: 2 },
+      { itemCode: "010", name: "금펜",       effect: "shop_grade_high", val: 1 },
     ];
 
     for (const c of consumables) {
@@ -309,45 +309,45 @@ try {
 
     // 2. 모자 (1xx)
     console.log("[DB-Seeding] Registering Hats (1xx)...");
-    insertItem.run("100", "Cap (기본 모자)", "기본 파란 모자", "Hat", "basic", "hat");
-    insertItem.run("101", "Cap1 (하급 모자)", "낮은 확률의 파란 모자", "Hat", "low", "hat");
-    insertItem.run("102", "Cap2 (중급 모자)", "중간 확률의 황금 모자", "Hat", "mid", "hat");
-    insertItem.run("103", "Cap3 (상급 모자)", "높은 확률의 초록 모자", "Hat", "high", "hat");
-    insertItem.run("104", "Cap4 (최상급 모자)", "극악의 확률의 청록 모자", "Hat", "top", "hat");
+    insertItem.run("100", "기본 모자", "기본 파란 모자", "Hat", "basic", "hat");
+    insertItem.run("101", "하급 모자", "낮은 확률의 파란 모자", "Hat", "low", "hat");
+    insertItem.run("102", "중급 모자", "중간 확률의 황금 모자", "Hat", "mid", "hat");
+    insertItem.run("103", "상급 모자", "높은 확률의 초록 모자", "Hat", "high", "hat");
+    insertItem.run("104", "최상급 모자", "극악의 확률의 청록 모자", "Hat", "top", "hat");
 
     // 3. 옷 (2xx)
     console.log("[DB-Seeding] Registering Clothes (2xx)...");
-    insertItem.run("200", "Clothes (기본 옷)", "기본 초록 티셔츠", "Clothes", "basic", "clothes");
-    insertItem.run("201", "Cloth1 (하급 옷)", "낮은 확률의 파란 구체옷", "Clothes", "low", "clothes");
-    insertItem.run("202", "Cloth2 (중급 옷)", "중간 확률의 황금 구체옷", "Clothes", "mid", "clothes");
-    insertItem.run("203", "Cloth3 (상급 옷)", "높은 확률의 초록 구체옷", "Clothes", "high", "clothes");
-    insertItem.run("204", "Cloth4 (최상급 옷)", "극악의 확률의 청록 구체옷", "Clothes", "top", "clothes");
+    insertItem.run("200", "기본 옷", "기본 초록 티셔츠", "Clothes", "basic", "clothes");
+    insertItem.run("201", "하급 옷", "낮은 확률의 파란 구체옷", "Clothes", "low", "clothes");
+    insertItem.run("202", "중급 옷", "중간 확률의 황금 구체옷", "Clothes", "mid", "clothes");
+    insertItem.run("203", "상급 옷", "높은 확률의 초록 구체옷", "Clothes", "high", "clothes");
+    insertItem.run("204", "최상급 옷", "극악의 확률의 청록 구체옷", "Clothes", "top", "clothes");
 
     // 4. 가방 (3xx)
     console.log("[DB-Seeding] Registering Bags (3xx)...");
-    insertItem.run("300", "Bag (기본 가방)", "기본 브라운 백팩", "Bag", "basic", "bag");
-    insertItem.run("301", "B1_1_ (하급 가방)", "낮은 확률의 파란 가방", "Bag", "low", "bag");
-    insertItem.run("302", "B2_1_ (중급 가방)", "중간 확률의 황금 가방", "Bag", "mid", "bag");
-    insertItem.run("303", "B3_1_ (상급 가방)", "높은 확률의 초록 가방", "Bag", "high", "bag");
-    insertItem.run("304", "B4_1_ (최상급 가방)", "극악의 확률의 청록 가방", "Bag", "top", "bag");
+    insertItem.run("300", "기본 가방", "기본 브라운 백팩", "Bag", "basic", "bag");
+    insertItem.run("301", "하급 가방", "낮은 확률의 파란 가방", "Bag", "low", "bag");
+    insertItem.run("302", "중급 가방", "중간 확률의 황금 가방", "Bag", "mid", "bag");
+    insertItem.run("303", "상급 가방", "높은 확률의 초록 가방", "Bag", "high", "bag");
+    insertItem.run("304", "최상급 가방", "극악의 확률의 청록 가방", "Bag", "top", "bag");
 
     // 5. 가구 (4xx)
     console.log("[DB-Seeding] Registering Themes (4xx)...");
     const themes = [
-      { itemCode: "400", name: "Chair (나무 의자)" },
-      { itemCode: "401", name: "Group_Bed (안락한 침대)" },
-      { itemCode: "402", name: "Group_Computer (핑크 PC 컴퓨터)" },
-      { itemCode: "403", name: "Group_Hanger" },
-      { itemCode: "404", name: "Group_Iron" },
-      { itemCode: "405", name: "Group_Shelf" },
-      { itemCode: "406", name: "Group_Sofa" },
-      { itemCode: "407", name: "Group_Stove" },
-      { itemCode: "408", name: "Group_Table" },
-      { itemCode: "409", name: "Group_Wash" }
+      { itemCode: "400", name: "나무 의자", desc: "나무 의자 가구" },
+      { itemCode: "401", name: "안락한 침대", desc: "안락한 침대 가구" },
+      { itemCode: "402", name: "핑크 컴퓨터", desc: "핑크 PC 컴퓨터 가구" },
+      { itemCode: "403", name: "옷걸이", desc: "옷걸이 가구" },
+      { itemCode: "404", name: "다림질대", desc: "다림질대 가구" },
+      { itemCode: "405", name: "선반", desc: "수납 선반 가구" },
+      { itemCode: "406", name: "소파", desc: "안락 소파 가구" },
+      { itemCode: "407", name: "가스레인지", desc: "주방 가스레인지 가구" },
+      { itemCode: "408", name: "테이블", desc: "카페 테이블 가구" },
+      { itemCode: "409", name: "세탁기", desc: "드럼 세탁기 가구" }
     ];
 
     for (const t of themes) {
-      insertItem.run(t.itemCode, t.name, `${t.name} 가구 테마`, "Theme", "basic", "theme");
+      insertItem.run(t.itemCode, t.name, t.desc, "Theme", "basic", "theme");
       db.prepare("INSERT INTO item_definition_options (itemCode, optionCode, value) VALUES (?, 'CURRENCY_EXP_FLAT', 50.0)")
         .run(t.itemCode);
     }
@@ -355,13 +355,13 @@ try {
     // 6. 프랜즈 (5xx)
     console.log("[DB-Seeding] Registering Friends (5xx)...");
     const friends = [
-      { itemCode: "500", name: "Cat (고양이)" },
-      { itemCode: "501", name: "Chicken (꼬꼬)" },
-      { itemCode: "502", name: "Green2 (개구리)" },
+      { itemCode: "500", name: "한성냥이", desc: "한성냥이 프랜즈 펫" },
+      { itemCode: "501", name: "꼬꼬&꾸꾸", desc: "꼬꼬&꾸꾸 프랜즈 펫" },
+      { itemCode: "502", name: "상찌", desc: "상찌 프랜즈 펫" },
     ];
 
     for (const f of friends) {
-      insertItem.run(f.itemCode, f.name, `${f.name} 프랜즈 펫`, "Friend", "basic", "friend");
+      insertItem.run(f.itemCode, f.name, f.desc, "Friend", "basic", "friend");
       
       const insertOption = db.prepare("INSERT INTO item_definition_options (itemCode, optionCode, value) VALUES (?, ?, ?)");
       insertOption.run(f.itemCode, "CURRENCY_ACADEMIC_RATE", 2.0);
