@@ -375,39 +375,54 @@ function unequipItem(userId, itemCode) {
 }
 
 function getInventory(userId) {
-  return db.prepare(`
+  const items = db.prepare(`
     SELECT
       ui.slotIndex, ui.isEquipped, ui.obtainedAt,
-      id.itemCode, id.name, id.description, id.itemType
+      id.itemCode, id.name, id.description, id.itemType, id.cosmeticSlot
     FROM user_inventory ui
     JOIN item_definitions id ON ui.itemCode = id.itemCode
     WHERE ui.userId = ?
     ORDER BY ui.slotIndex ASC
   `).all(userId);
+
+  for (const item of items) {
+    item.options = getItemOptions(item.itemCode);
+  }
+  return items;
 }
 
 function getInventoryByType(userId, itemType) {
   if (!itemType) return getInventory(userId);
 
-  return db.prepare(`
+  const items = db.prepare(`
     SELECT
       ui.slotIndex, ui.isEquipped, ui.obtainedAt,
-      id.itemCode, id.name, id.description, id.itemType
+      id.itemCode, id.name, id.description, id.itemType, id.cosmeticSlot
     FROM user_inventory ui
     JOIN item_definitions id ON ui.itemCode = id.itemCode
     WHERE ui.userId = ? AND id.itemType = ?
     ORDER BY ui.slotIndex ASC
   `).all(userId, itemType);
+
+  for (const item of items) {
+    item.options = getItemOptions(item.itemCode);
+  }
+  return items;
 }
 
 function getEquippedItems(userId) {
-  return db.prepare(`
-    SELECT ui.slotIndex, id.itemCode, id.name, id.itemType
+  const items = db.prepare(`
+    SELECT ui.slotIndex, id.itemCode, id.name, id.itemType, id.cosmeticSlot
     FROM user_inventory ui
     JOIN item_definitions id ON ui.itemCode = id.itemCode
     WHERE ui.userId = ? AND ui.isEquipped = 1
     ORDER BY id.itemType ASC
   `).all(userId);
+
+  for (const item of items) {
+    item.options = getItemOptions(item.itemCode);
+  }
+  return items;
 }
 
 function getItemOptions(itemCode) {
