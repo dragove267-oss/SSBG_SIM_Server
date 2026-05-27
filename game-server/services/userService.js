@@ -571,6 +571,9 @@ function resolveItemOptions(itemType, grade) {
 
   return options;
 }
+
+
+const GRADE_RATES = [
   { grade: "low",  rate: 0.45 },
   { grade: "mid",  rate: 0.35 },
   { grade: "high", rate: 0.15 },
