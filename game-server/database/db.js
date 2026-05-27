@@ -331,6 +331,31 @@ try {
     insertItem.run("303", "상급 가방", "장착 시 방치형(Idle) 재화 획득 배율 +30% 증가", "Bag", "high", "bag");
     insertItem.run("304", "최상급 가방", "장착 시 방치형(Idle) 재화 획득 배율 +50% 증가", "Bag", "top", "bag");
 
+    // 코스튬 기본/고정 옵션 사전 시딩
+    console.log("[DB-Seeding] Pre-seeding default cosmetic options...");
+    const cosmeticOptionQuery = db.prepare("INSERT INTO item_definition_options (itemCode, optionCode, value) VALUES (?, ?, ?)");
+    
+    // 모자 옵션 (Academic)
+    cosmeticOptionQuery.run("100", "CURRENCY_ACADEMIC_RATE", 1.0);
+    cosmeticOptionQuery.run("101", "CURRENCY_ACADEMIC_RATE", 1.1);
+    cosmeticOptionQuery.run("102", "CURRENCY_ACADEMIC_RATE", 1.2);
+    cosmeticOptionQuery.run("103", "CURRENCY_ACADEMIC_RATE", 1.3);
+    cosmeticOptionQuery.run("104", "CURRENCY_ACADEMIC_RATE", 1.5);
+
+    // 옷 옵션 (Extra)
+    cosmeticOptionQuery.run("200", "CURRENCY_EXTRA_RATE", 1.0);
+    cosmeticOptionQuery.run("201", "CURRENCY_EXTRA_RATE", 1.1);
+    cosmeticOptionQuery.run("202", "CURRENCY_EXTRA_RATE", 1.2);
+    cosmeticOptionQuery.run("203", "CURRENCY_EXTRA_RATE", 1.3);
+    cosmeticOptionQuery.run("204", "CURRENCY_EXTRA_RATE", 1.5);
+
+    // 가방 옵션 (Idle)
+    cosmeticOptionQuery.run("300", "CURRENCY_IDLE_RATE", 1.0);
+    cosmeticOptionQuery.run("301", "CURRENCY_IDLE_RATE", 1.1);
+    cosmeticOptionQuery.run("302", "CURRENCY_IDLE_RATE", 1.2);
+    cosmeticOptionQuery.run("303", "CURRENCY_IDLE_RATE", 1.3);
+    cosmeticOptionQuery.run("304", "CURRENCY_IDLE_RATE", 1.5);
+
     // 5. 가구 (4xx)
     console.log("[DB-Seeding] Registering Themes (4xx)...");
     const themes = [
@@ -355,18 +380,16 @@ try {
     // 6. 프랜즈 (5xx)
     console.log("[DB-Seeding] Registering Friends (5xx)...");
     const friends = [
-      { itemCode: "500", name: "한성냥이", desc: "장착 시 학습/과외/방치형 모든 재화 획득 배율 2.0배(2배) 적용" },
-      { itemCode: "501", name: "꼬꼬&꾸꾸", desc: "장착 시 학습/과외/방치형 모든 재화 획득 배율 2.0배(2배) 적용" },
-      { itemCode: "502", name: "상찌", desc: "장착 시 학습/과외/방치형 모든 재화 획득 배율 2.0배(2배) 적용" },
+      { itemCode: "500", name: "한성냥이", desc: "장착 시 학습(Academic) 재화 획득 배율 2.0배(2배) 적용", optionCode: "CURRENCY_ACADEMIC_RATE" },
+      { itemCode: "501", name: "꼬꼬&꾸꾸", desc: "장착 시 과외(Extra) 재화 획득 배율 2.0배(2배) 적용", optionCode: "CURRENCY_EXTRA_RATE" },
+      { itemCode: "502", name: "상찌", desc: "장착 시 방치형(Idle) 재화 획득 배율 2.0배(2배) 적용", optionCode: "CURRENCY_IDLE_RATE" },
     ];
 
     for (const f of friends) {
       insertItem.run(f.itemCode, f.name, f.desc, "Friend", "basic", "friend");
       
-      const insertOption = db.prepare("INSERT INTO item_definition_options (itemCode, optionCode, value) VALUES (?, ?, ?)");
-      insertOption.run(f.itemCode, "CURRENCY_ACADEMIC_RATE", 2.0);
-      insertOption.run(f.itemCode, "CURRENCY_EXTRA_RATE", 2.0);
-      insertOption.run(f.itemCode, "CURRENCY_IDLE_RATE", 2.0);
+      db.prepare("INSERT INTO item_definition_options (itemCode, optionCode, value) VALUES (?, ?, 2.0)")
+        .run(f.itemCode, f.optionCode);
     }
 
     // 7. 상점 상품 등록 (책 5종 - EXP 소모)
