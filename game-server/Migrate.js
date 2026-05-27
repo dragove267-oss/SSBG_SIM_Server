@@ -186,4 +186,14 @@ for (const c of craftItems) {
 console.log("[Migration] 조합 레시피 등록 완료");
 
 console.log("[Migration] 전체 완료!");
+
+// ================================================================
+// 8. CURRENCY_EXP_FLAT 옵션 코드 추가 (가구 EXP +50 고정)
+// ================================================================
+db.prepare(`
+  INSERT OR IGNORE INTO item_options (optionCode, name, description, valueType, defaultValue)
+  VALUES ('CURRENCY_EXP_FLAT', 'EXP 고정 증가', '가구 장착 시 EXP 획득량 고정 증가', 'flat', 50.0)
+`).run();
+console.log("[Migration] CURRENCY_EXP_FLAT 옵션 추가 완료");
+
 db.close();

@@ -8,6 +8,7 @@ const REWARD_CONFIG = {
 
 const INVENTORY_SLOT_COUNT = 80;
 
+//  relic 포함
 const VALID_ITEM_TYPES = ['Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'relic'];
 
 // ================================================================
@@ -315,13 +316,16 @@ function equipItem(userId, itemCode) {
   if (itemDef.itemType === "Consumable")
     return { success: false, message: "Consumable items cannot be equipped" };
 
-  db.prepare(`
-    UPDATE user_inventory SET isEquipped = 0
-    WHERE userId = ? AND isEquipped = 1
-      AND itemCode IN (
-        SELECT itemCode FROM item_definitions WHERE itemType = ?
-      )
-  `).run(userId, itemDef.itemType);
+  // Theme(가구)은 중복 장착 허용 - 기존 장착 해제 없이 바로 장착
+  if (itemDef.itemType !== "Theme") {
+    db.prepare(`
+      UPDATE user_inventory SET isEquipped = 0
+      WHERE userId = ? AND isEquipped = 1
+        AND itemCode IN (
+          SELECT itemCode FROM item_definitions WHERE itemType = ?
+        )
+    `).run(userId, itemDef.itemType);
+  }
 
   db.prepare(`
     UPDATE user_inventory SET isEquipped = 1
@@ -408,7 +412,7 @@ function getUserAllOptions(userId) {
 // 도감
 // ================================================================
 
-// item_definitions 전체 기준
+//  item_definitions 전체 기준
 //    user_inventory에 있으면 isUnlocked = 1 (해금)
 //    없으면 isUnlocked = 0 (미해금)
 // collectionType: null = 전체 / 'Hat' / 'Bag' / 'Clothes' / 'Theme' / 'Friend' / 'Consumable' / 'relic'
@@ -441,7 +445,7 @@ function getCollection(userId, collectionType) {
     : db.prepare(query).all(userId);
 }
 
-// 해금된 itemCode 목록만 반환
+//  해금된 itemCode 목록만 반환
 //    = 유저가 가방에 보유한 아이템
 function getUnlockedItemCodes(userId, collectionType) {
   const query = collectionType
@@ -518,16 +522,16 @@ const ITEM_OPTIONS = {
   Hat:     { main: "CURRENCY_ACADEMIC_RATE", sub: "CURRENCY_EXTRA_RATE" },
   Clothes: { main: "CURRENCY_EXTRA_RATE",    sub: "CURRENCY_IDLE_RATE" },
   Bag:     { main: "CURRENCY_IDLE_RATE",     sub: "CURRENCY_ACADEMIC_RATE" },
-  Theme:   { main: "CURRENCY_EXP_RATE",      sub: null },
-  Friend:  { main: null,                     sub: null }, // 별도 처리
+  Theme:   { main: "CURRENCY_EXP_FLAT",      sub: null },  // 가구 - EXP +50 고정
+  Friend:  { main: null,                     sub: null },  // 별도 처리
 };
 
-// 서브 옵션 등장 확률 (등급별)
+// 서브 옵션 등장 확률 (메인 등급 확률과 동일)
 const SUB_OPTION_RATES = {
-  low:  0.0,   // 서브 없음
-  mid:  0.3,   // 30%
-  high: 0.6,   // 60%
-  top:  1.0,   // 100%
+  low:  0.45,
+  mid:  0.35,
+  high: 0.15,
+  top:  0.05,
 };
 
 // 아이템 옵션 결정
@@ -539,10 +543,14 @@ function resolveItemOptions(itemType, grade) {
   const options = [];
 
   if (itemType === "Friend") {
-    // 프랜즈 - 모든 재화 2배 확정
-    options.push({ optionCode: "CURRENCY_ACADEMIC_RATE", value: 2.0 });
-    options.push({ optionCode: "CURRENCY_EXTRA_RATE",    value: 2.0 });
-    options.push({ optionCode: "CURRENCY_IDLE_RATE",     value: 2.0 });
+    // 프랜즈 - item_definition_options에 등록된 옵션 그대로 사용
+    // 어드민에서 아이템 등록 시 옵션 직접 연결
+    return options; // 빈 배열 반환 (옵션은 item_definition_options에서 관리)
+  }
+
+  if (itemType === "Theme") {
+    // 가구 - EXP +50 고정 (flat)
+    options.push({ optionCode: "CURRENCY_EXP_FLAT", value: 50 });
     return options;
   }
 
@@ -663,8 +671,8 @@ function generateDreamShop(userId) {
   else if (addEffect === 4) baseItemCount += Math.random() < 0.5 ? 2 : 3;
   else if (addEffect === 5) baseItemCount += 3;
 
-  // 구매 가능 수 결정
-  const maxBuyCount = 1 + effects.shop_add_buy;
+  // 구매 가능 수 결정 (기본 1개, 최대 4개)
+  const maxBuyCount = Math.min(4, 1 + effects.shop_add_buy);
 
   // 아이템 생성
   const items = [];
@@ -673,27 +681,44 @@ function generateDreamShop(userId) {
   for (let i = 0; i < baseItemCount; i++) {
     const itemType = rollItemType();
 
-    // 등급 결정 (중급/상급 확정 소모품 효과 적용)
-    let minGrade = null;
-    if (effects.shop_grade_high > 0 && i < effects.shop_grade_high) {
-      minGrade = "high";
-    } else if (effects.shop_grade_mid > 0 && i < effects.shop_grade_mid) {
-      minGrade = "mid";
-    }
-    const grade = rollGrade(minGrade);
-
-    // 중복 없이 아이템 선택
+    // Friend/Theme은 이미 보유 중이면 재시도
     let itemCode = null;
-    let tries = 0;
+    let grade    = null;
+    let options  = [];
+    let tries    = 0;
+
     while (tries < 10) {
-      itemCode = pickRandomItem(itemType);
-      if (itemCode && !usedCodes.has(itemCode)) break;
-      tries++;
+      const candidateCode = pickRandomItem(itemType);
+      if (!candidateCode) break;
+      if (usedCodes.has(candidateCode)) { tries++; continue; }
+
+      // Friend/Theme 중복 보유 체크
+      if (itemType === "Friend" || itemType === "Theme") {
+        const owned = db.prepare(
+          "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
+        ).get(userId, candidateCode);
+        if (owned) { tries++; continue; }
+      }
+
+      itemCode = candidateCode;
+      break;
     }
+
     if (!itemCode) continue;
 
+    // 등급 결정 (Friend/Theme은 등급 없음)
+    if (itemType === "Friend" || itemType === "Theme") {
+      grade   = "basic";
+      options = resolveItemOptions(itemType, grade);
+    } else {
+      let minGrade = null;
+      if (effects.shop_grade_high > 0 && i < effects.shop_grade_high) minGrade = "high";
+      else if (effects.shop_grade_mid > 0 && i < effects.shop_grade_mid) minGrade = "mid";
+      grade   = rollGrade(minGrade);
+      options = resolveItemOptions(itemType, grade);
+    }
+
     usedCodes.add(itemCode);
-    const options = resolveItemOptions(itemType, grade);
     items.push({ itemCode, grade, multiplier: GRADE_MULTIPLIER[grade] || 1.0, options, bought: false });
   }
 
@@ -736,11 +761,23 @@ function buyDreamShopItem(userId, itemIndex) {
   if (shop.usedBuyCount >= shop.maxBuyCount)
     return { success: false, message: "구매 가능 횟수를 초과했습니다." };
 
-  const { itemCode, grade } = items[itemIndex];
+  const { itemCode, grade, options } = items[itemIndex];
 
   // 인벤토리에 추가
   const invResult = addItemToInventory(userId, itemCode);
   if (!invResult.success) return { success: false, message: invResult.message };
+
+  //  꿈상점 확정 옵션을 item_definition_options에 적용
+  // Friend/Theme 제외 (이미 등록된 옵션 사용)
+  const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
+  if (itemDef && itemDef.itemType !== "Friend" && itemDef.itemType !== "Theme" && options && options.length > 0) {
+    for (const opt of options) {
+      db.prepare(`
+        INSERT OR REPLACE INTO item_definition_options (itemCode, optionCode, value)
+        VALUES (?, ?, ?)
+      `).run(itemCode, opt.optionCode, opt.value);
+    }
+  }
 
   // 구매 처리
   items[itemIndex].bought = true;
@@ -753,6 +790,7 @@ function buyDreamShopItem(userId, itemIndex) {
     success: true,
     itemCode,
     grade,
+    options: options || [],
     slotIndex: invResult.slotIndex
   };
 }
