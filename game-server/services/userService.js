@@ -8,8 +8,7 @@ const REWARD_CONFIG = {
 
 const INVENTORY_SLOT_COUNT = 80;
 
-//  relic 포함
-const VALID_ITEM_TYPES = ['Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'relic'];
+const VALID_ITEM_TYPES = ['Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable'];
 
 // ================================================================
 // 유저
@@ -25,7 +24,7 @@ function getOrCreateUser(userId) {
     user = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
 
     //  기본 아이템 자동 지급 + 장착
-    const defaultItems = ["HAT_000", "CLOTHES_000", "BAG_000"];
+    const defaultItems = ["100", "200", "300"];
     for (let i = 0; i < defaultItems.length; i++) {
       const itemCode = defaultItems[i];
       const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
@@ -50,7 +49,7 @@ function getUserOptionValue(userId, optionCode) {
     FROM user_inventory ui
     JOIN item_definition_options ido ON ui.itemCode = ido.itemCode
     JOIN item_options io ON ido.optionCode = io.optionCode
-    WHERE ui.userId = ? AND ido.optionCode = ?
+    WHERE ui.userId = ? AND ido.optionCode = ? AND ui.isEquipped = 1
   `).all(userId, optionCode);
 
   if (options.length === 0) return null;
@@ -63,12 +62,23 @@ function getUserOptionValue(userId, optionCode) {
   }
 }
 
+function getUserFlatOptionValue(userId, optionCode) {
+  const options = db.prepare(`
+    SELECT ido.value
+    FROM user_inventory ui
+    JOIN item_definition_options ido ON ui.itemCode = ido.itemCode
+    JOIN item_options io ON ido.optionCode = io.optionCode
+    WHERE ui.userId = ? AND ido.optionCode = ? AND ui.isEquipped = 1
+  `).all(userId, optionCode);
+  return options.reduce((acc, o) => acc + o.value, 0.0);
+}
+
 function applyOptionToAmount(userId, currencyType, baseAmount) {
   const optionMap = {
     extraCurrency:    "CURRENCY_EXTRA_RATE",
     exp:              "CURRENCY_EXP_RATE",
     academicCurrency: "CURRENCY_ACADEMIC_RATE",
-    idleCurrency:     null
+    idleCurrency:     "CURRENCY_IDLE_RATE"
   };
 
   const optionCode = optionMap[currencyType];
@@ -105,8 +115,11 @@ function applySchoolReward(userId, newAttendance, newAssignment) {
   const baseExp   = deltaAttendance * REWARD_CONFIG.attendance.exp
                   + deltaAssignment * REWARD_CONFIG.assignment.exp;
 
-  const finalExtra = applyOptionToAmount(userId, "extraCurrency", baseExtra);
-  const finalExp   = applyOptionToAmount(userId, "exp", baseExp);
+  const finalExtra = applyOptionToAmount(userId, "extraCurrency", baseExtra)
+                   + deltaAttendance * getUserFlatOptionValue(userId, "REWARD_ATTENDANCE_BONUS");
+  const finalExp   = applyOptionToAmount(userId, "exp", baseExp)
+                   + deltaAssignment * getUserFlatOptionValue(userId, "REWARD_ASSIGNMENT_BONUS")
+                   + ((deltaAttendance > 0 || deltaAssignment > 0) ? getUserFlatOptionValue(userId, "CURRENCY_EXP_FLAT") : 0);
 
   const delta = {
     academicCurrency: 0,
@@ -279,21 +292,33 @@ function equipConsumable(userId, itemCode) {
   if (invItem.isEquipped)
     return { success: false, message: "이미 장착 중인 아이템입니다." };
 
-  // 현재 장착된 Consumable 목록 (slotIndex 오름차순)
+  // 새 아이템의 효과 타입 조회
+  const targetEffect = db.prepare(
+    "SELECT effectType FROM consumable_effects WHERE itemCode = ?"
+  ).get(itemCode);
+  if (!targetEffect) return { success: false, message: "소모품 특수 효과 정보를 찾을 수 없습니다." };
+
+  // 현재 장착된 Consumable 목록과 효과 조회
   const equipped = db.prepare(`
-    SELECT ui.id, ui.slotIndex, ui.itemCode
+    SELECT ui.id, ui.slotIndex, ui.itemCode, ce.effectType
     FROM user_inventory ui
-    JOIN item_definitions id ON ui.itemCode = id.itemCode
-    WHERE ui.userId = ? AND id.itemType = 'Consumable' AND ui.isEquipped = 1
+    JOIN consumable_effects ce ON ui.itemCode = ce.itemCode
+    WHERE ui.userId = ? AND ui.isEquipped = 1
     ORDER BY ui.slotIndex ASC
   `).all(userId);
 
-  // 3개 꽉 찬 경우 가장 왼쪽(slotIndex 가장 작은) 해제
-  if (equipped.length >= 3) {
-    db.prepare(`
-      UPDATE user_inventory SET isEquipped = 0
-      WHERE id = ?
-    `).run(equipped[0].id);
+  let unequippedCode = null;
+
+  // 동일 효과를 지닌 장착 소모품 탐색 (동일효과 중복착용 제한 스왑)
+  const duplicate = equipped.find(e => e.effectType === targetEffect.effectType);
+
+  if (duplicate) {
+    db.prepare("UPDATE user_inventory SET isEquipped = 0 WHERE id = ?").run(duplicate.id);
+    unequippedCode = duplicate.itemCode;
+  } else if (equipped.length >= 3) {
+    // 3개 꽉 찬 경우 가장 왼쪽 해제
+    db.prepare("UPDATE user_inventory SET isEquipped = 0 WHERE id = ?").run(equipped[0].id);
+    unequippedCode = equipped[0].itemCode;
   }
 
   // 새 아이템 장착
@@ -302,7 +327,7 @@ function equipConsumable(userId, itemCode) {
     WHERE userId = ? AND itemCode = ?
   `).run(userId, itemCode);
 
-  return { success: true, equipped: itemCode, unequipped: equipped.length >= 3 ? equipped[0].itemCode : null };
+  return { success: true, equipped: itemCode, unequipped: unequippedCode };
 }
 
 function equipItem(userId, itemCode) {
@@ -680,6 +705,7 @@ function generateDreamShop(userId) {
   // 아이템 생성
   const items = [];
   const usedCodes = new Set();
+  let costumeCount = 0;
 
   for (let i = 0; i < baseItemCount; i++) {
     const itemType = rollItemType();
@@ -715,10 +741,11 @@ function generateDreamShop(userId) {
       options = resolveItemOptions(itemType, grade);
     } else {
       let minGrade = null;
-      if (effects.shop_grade_high > 0 && i < effects.shop_grade_high) minGrade = "high";
-      else if (effects.shop_grade_mid > 0 && i < effects.shop_grade_mid) minGrade = "mid";
+      if (effects.shop_grade_high > 0 && costumeCount < effects.shop_grade_high) minGrade = "high";
+      else if (effects.shop_grade_mid > 0 && costumeCount < effects.shop_grade_mid) minGrade = "mid";
       grade   = rollGrade(minGrade);
       options = resolveItemOptions(itemType, grade);
+      costumeCount++;
     }
 
     usedCodes.add(itemCode);
@@ -1048,6 +1075,7 @@ module.exports = {
   getItemOptions,
   getUserAllOptions,
   getUserOptionValue,
+  getUserFlatOptionValue,
   applyOptionToAmount,
   getCollection,
   getUnlockedItemCodes,

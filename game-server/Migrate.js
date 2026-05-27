@@ -4,10 +4,7 @@
 // 위치: game-server/ 폴더에서 실행
 // ================================================================
 
-const Database = require("better-sqlite3");
-const path = require("path");
-
-const db = new Database(path.join(__dirname, "database", "game.db"));
+const db = require("./database/db");
 
 console.log("[Migration] 시작...");
 

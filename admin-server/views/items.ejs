@@ -20,6 +20,7 @@
                         <th>NAME</th>
                         <th>TYPE</th>
                         <th>COSMETIC SLOT</th>
+                        <th>OPTIONS / STATS</th>
                         <th>DESCRIPTION</th>
                         <th class="text-center">ACTION</th>
                     </tr>
@@ -31,6 +32,19 @@
                         <td class="fw-bold"><%= item.name %></td>
                         <td><span class="badge bg-info text-dark border"><%= item.itemType %></span></td>
                         <td><span class="text-muted"><%= item.cosmeticSlot || '-' %></span></td>
+                        <td>
+                            <% if (item.options && item.options.length > 0) { %>
+                                <div class="d-flex flex-wrap gap-1">
+                                    <% item.options.forEach(opt => { %>
+                                        <span class="badge bg-primary text-white border small" style="font-size: 0.75rem;" title="<%= opt.description %>">
+                                            <%= opt.name %>: <%= opt.valueType === 'multiplier' ? opt.value + 'x' : '+' + opt.value %>
+                                        </span>
+                                    <% }) %>
+                                </div>
+                            <% } else { %>
+                                <span class="text-muted small">-</span>
+                            <% } %>
+                        </td>
                         <td><small class="text-muted"><%= item.description %></small></td>
                         <td class="text-center">
                             <button class="btn btn-sm text-danger" onclick="deleteItem('<%= item.itemCode %>')">
@@ -41,7 +55,7 @@
                     <% }) %>
                     <% if (items.length === 0) { %>
                     <tr>
-                        <td colspan="6" class="text-center py-5 text-muted">등록된 아이템이 없습니다.</td>
+                        <td colspan="7" class="text-center py-5 text-muted">등록된 아이템이 없습니다.</td>
                     </tr>
                     <% } %>
                 </tbody>
@@ -71,13 +85,12 @@
                     <div class="mb-3">
                         <label class="form-label small fw-bold text-muted">ITEM TYPE</label>
                         <select name="itemType" class="form-select">
-                            <option value="Hat">Hat</option>
+                            <option value="Hat" selected>Hat</option>
                             <option value="Bag">Bag</option>
                             <option value="Clothes">Clothes</option>
                             <option value="Theme">Theme</option>
                             <option value="Friend">Friend</option>
                             <option value="Consumable">Consumable</option>
-                            <option value="relic" selected>relic</option>
                         </select>
                     </div>
                     <div class="mb-3">

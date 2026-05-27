@@ -30,36 +30,39 @@ function connectDBs() {
             )
         `);
 
-        // check item_definitions schema to prevent uppercase 'Relic' CHECK constraint issues from game-server
+        // check item_definitions schema to prevent 'relic' / 'Relic' CHECK constraint issues from game-server
         let recreateItemDefinitions = false;
         try {
             const schema = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='item_definitions'").get();
-            if (schema && schema.sql.includes("'Relic'")) {
+            if (schema && (schema.sql.includes("'Relic'") || schema.sql.includes("'relic'"))) {
                 recreateItemDefinitions = true;
             }
         } catch (e) {}
 
         if (recreateItemDefinitions) {
             try {
-                console.log("[Admin] Mismatched item_definitions schema ('Relic' CHECK constraint) detected. Recreating table...");
+                console.log("[Admin] Mismatched item_definitions schema ('relic' constraint) detected. Recreating table...");
                 const data = db.prepare("SELECT * FROM item_definitions").all();
+                db.exec("PRAGMA foreign_keys = OFF;");
                 db.exec("DROP TABLE item_definitions");
                 db.exec(`
                     CREATE TABLE item_definitions (
                         itemCode     TEXT PRIMARY KEY,
                         name         TEXT NOT NULL,
                         description  TEXT DEFAULT '',
-                        itemType     TEXT NOT NULL DEFAULT 'relic'
-                                     CHECK(itemType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'relic')),
+                        itemType     TEXT NOT NULL
+                                     CHECK(itemType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable')),
+                        grade        TEXT DEFAULT 'basic',
                         cosmeticSlot TEXT,
                         createdAt    TEXT DEFAULT (datetime('now'))
                     )
                 `);
-                const insert = db.prepare("INSERT OR REPLACE INTO item_definitions (itemCode, name, description, itemType, cosmeticSlot, createdAt) VALUES (?, ?, ?, ?, ?, ?)");
+                const insert = db.prepare("INSERT OR REPLACE INTO item_definitions (itemCode, name, description, itemType, grade, cosmeticSlot, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)");
                 for (const row of data) {
-                    const it = row.itemType === 'Relic' ? 'relic' : row.itemType;
-                    insert.run(row.itemCode, row.name, row.description, it, row.cosmeticSlot, row.createdAt);
+                    if (row.itemType === 'Relic' || row.itemType === 'relic') continue;
+                    insert.run(row.itemCode, row.name, row.description, row.itemType, row.grade || 'basic', row.cosmeticSlot, row.createdAt);
                 }
+                db.exec("PRAGMA foreign_keys = ON;");
                 console.log("[Admin] Recreated item_definitions table successfully and migrated data.");
             } catch (err) {
                 console.error("[Admin] item_definitions 스키마 변경 실패:", err.message);
@@ -70,8 +73,9 @@ function connectDBs() {
                     itemCode     TEXT PRIMARY KEY,
                     name         TEXT NOT NULL,
                     description  TEXT DEFAULT '',
-                    itemType     TEXT NOT NULL DEFAULT 'relic'
-                                 CHECK(itemType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable', 'relic')),
+                    itemType     TEXT NOT NULL
+                                 CHECK(itemType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable')),
+                    grade        TEXT DEFAULT 'basic',
                     cosmeticSlot TEXT,
                     createdAt    TEXT DEFAULT (datetime('now'))
                 )
@@ -178,7 +182,7 @@ function connectDBs() {
             CREATE TABLE IF NOT EXISTS shop_definitions (
                 shopId       TEXT PRIMARY KEY,
                 itemCode     TEXT NOT NULL REFERENCES item_definitions(itemCode),
-                currencyType TEXT NOT NULL CHECK(currencyType IN ('academicCurrency', 'extraCurrency', 'idleCurrency')),
+                currencyType TEXT NOT NULL CHECK(currencyType IN ('academicCurrency', 'extraCurrency', 'idleCurrency', 'exp')),
                 price        INTEGER NOT NULL,
                 createdAt    TEXT DEFAULT (datetime('now'))
             )
@@ -204,12 +208,14 @@ function connectDBs() {
                 ('CURRENCY_EXTRA_RATE',     'Extra 재화 배율',       'Extra 재화 획득량 배율 증가',    'multiplier', 1.2),
                 ('CURRENCY_EXP_RATE',       'EXP 배율',              'EXP 획득량 배율 증가',           'multiplier', 1.2),
                 ('CURRENCY_ACADEMIC_RATE',  'Academic 재화 배율',    'Academic 재화 획득량 배율 증가', 'multiplier', 1.2),
+                ('CURRENCY_IDLE_RATE',      'Idle 재화 배율',        'Idle 재화 획득량 배율 증가',     'multiplier', 1.2),
                 ('REWARD_ATTENDANCE_BONUS', '출석 보상 증가',        '출석 시 보상 추가 지급',         'flat',       50.0),
                 ('REWARD_ASSIGNMENT_BONUS', '과제 보상 증가',        '과제 제출 시 보상 추가 지급',    'flat',       30.0),
                 ('ITEM_DROP_RATE',          '아이템 획득 확률 증가', '아이템 드롭 확률 증가',          'chance',     0.05),
                 ('ITEM_RARE_RATE',          '희귀 아이템 확률 증가', '희귀 등급 이상 드롭 확률 증가', 'chance',     0.03),
                 ('CONSUMABLE_EXTRA_RATE',   '소모성 Extra 배율',     '소모 시 Extra 재화 배율 증가',   'multiplier', 1.5),
-                ('CONSUMABLE_EXP_RATE',     '소모성 EXP 배율',       '소모 시 EXP 배율 증가',          'multiplier', 1.5)
+                ('CONSUMABLE_EXP_RATE',     '소모성 EXP 배율',       '소모 시 EXP 배율 증가',          'multiplier', 1.5),
+                ('CURRENCY_EXP_FLAT',       'EXP 고정 증가',         '장착 시 EXP 획득량 고정 증가',   'flat',       0.0)
         `).run();
 
         // 학사 서버용 테이블 (studentId → userId 통일)
@@ -303,10 +309,18 @@ app.get("/users/:userId", (req, res) => {
                 JOIN item_definitions id ON ui.itemCode = id.itemCode
                 WHERE ui.userId = ? ORDER BY ui.slotIndex ASC
             `).all(userId);
+            for (const inv of inventory) {
+                inv.options = db.prepare(`
+                    SELECT ido.optionCode, ido.value, io.name, io.valueType, io.description
+                    FROM item_definition_options ido
+                    JOIN item_options io ON ido.optionCode = io.optionCode
+                    WHERE ido.itemCode = ?
+                `).all(inv.itemCode);
+            }
         } catch (e) {}
         try {
             collections = db.prepare(`
-                SELECT id.itemCode AS collectionCode, id.name,
+                SELECT id.itemCode AS collectionCode, id.name, id.itemType,
                        CASE WHEN ui.itemCode IS NOT NULL THEN 1 ELSE 0 END AS isUnlocked,
                        ui.obtainedAt AS unlockedAt
                 FROM item_definitions id
@@ -314,6 +328,14 @@ app.get("/users/:userId", (req, res) => {
                 WHERE id.itemType IN ('Hat', 'Bag', 'Clothes', 'Theme', 'Friend', 'Consumable')
                 ORDER BY id.itemCode ASC
             `).all(userId);
+            for (const col of collections) {
+                col.options = db.prepare(`
+                    SELECT ido.optionCode, ido.value, io.name, io.valueType, io.description
+                    FROM item_definition_options ido
+                    JOIN item_options io ON ido.optionCode = io.optionCode
+                    WHERE ido.itemCode = ?
+                `).all(col.collectionCode);
+            }
         } catch (e) {}
 
         res.render("user-detail", { user, inventory, collections, page: "users" });
@@ -623,6 +645,14 @@ app.post("/users/:userId/collection/save", (req, res) => {
 app.get("/items", (req, res) => {
     try {
         const items = db.prepare("SELECT * FROM item_definitions ORDER BY createdAt DESC").all();
+        for (const item of items) {
+            item.options = db.prepare(`
+                SELECT ido.optionCode, ido.value, io.name, io.valueType, io.description
+                FROM item_definition_options ido
+                JOIN item_options io ON ido.optionCode = io.optionCode
+                WHERE ido.itemCode = ?
+            `).all(item.itemCode);
+        }
         res.render("items", { items, page: "items" });
     } catch (err) {
         res.status(500).send(err.message);
@@ -703,7 +733,8 @@ app.post("/system/reset-db", (req, res) => {
                 "academic_assignment",
                 "academic_change_log",
                 "user_inventory",
-                "user_collection"
+                "user_collection",
+                "dream_shop"
             ];
             
             for (const table of dynamicTables) {

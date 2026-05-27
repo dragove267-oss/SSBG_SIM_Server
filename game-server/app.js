@@ -86,7 +86,7 @@ cron.schedule("0 6 * * *", async () => {
       try {
         const alreadyReset = db.prepare(`
           SELECT * FROM daily_reset_log
-          WHERE userId = ? AND date(resetAt) = date('now')
+          WHERE userId = ? AND date(resetAt, '+9 hours') = date('now', '+9 hours')
         `).get(userId);
 
         if (alreadyReset) continue;

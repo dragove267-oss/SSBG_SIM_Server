@@ -90,7 +90,19 @@
                                     <% inventory.forEach(item => { %>
                                     <tr id="inv-row-<%= item.id %>">
                                         <td class="ps-4 fw-bold">#<%= item.slotIndex %></td>
-                                        <td><div class="fw-bold"><%= item.name %></div><div class="x-small text-muted font-monospace"><%= item.itemCode %></div></td>
+                                        <td>
+                                            <div class="fw-bold"><%= item.name %></div>
+                                            <div class="x-small text-muted font-monospace"><%= item.itemCode %></div>
+                                            <% if (item.options && item.options.length > 0) { %>
+                                                <div class="d-flex flex-wrap gap-1 mt-1">
+                                                    <% item.options.forEach(opt => { %>
+                                                        <span class="badge bg-primary text-white border x-small" style="font-size: 0.65rem;" title="<%= opt.description %>">
+                                                            <%= opt.name %>: <%= opt.valueType === 'multiplier' ? opt.value + 'x' : '+' + opt.value %>
+                                                        </span>
+                                                    <% }) %>
+                                                </div>
+                                            <% } %>
+                                        </td>
                                         <td><span class="badge bg-light text-dark border text-uppercase" style="font-size: 0.7rem;"><%= item.itemType %></span></td>
                                         <td><% if(item.isEquipped) { %><span class="badge bg-success">장착중</span><% } else { %><span class="text-muted">-</span><% } %></td>
                                         <td class="text-center">
@@ -117,6 +129,15 @@
                                         </div>
                                         <label class="flex-grow-1 cursor-pointer mb-0" for="col-<%= col.collectionCode %>" style="font-size: 0.85rem;">
                                             <div class="fw-bold text-dark"><%= col.name %></div>
+                                            <% if (col.options && col.options.length > 0) { %>
+                                                <div class="d-flex flex-wrap gap-1 mt-1">
+                                                    <% col.options.forEach(opt => { %>
+                                                        <span class="badge bg-secondary text-white border x-small" style="font-size: 0.65rem;" title="<%= opt.description %>">
+                                                            <%= opt.name %>: <%= opt.valueType === 'multiplier' ? opt.value + 'x' : '+' + opt.value %>
+                                                        </span>
+                                                    <% }) %>
+                                                </div>
+                                            <% } %>
                                         </label>
                                     </div>
                                 </div>

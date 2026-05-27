@@ -51,7 +51,7 @@ function getSecondsUntilReset() {
 function isResetDoneToday(userId) {
   const row = db.prepare(`
     SELECT * FROM daily_reset_log
-    WHERE userId = ? AND date(resetAt) = date('now')
+    WHERE userId = ? AND date(resetAt, '+9 hours') = date('now', '+9 hours')
   `).get(userId);
   return !!row;
 }
@@ -211,7 +211,7 @@ router.post("/daily-summary", (req, res) => {
           COALESCE(SUM(extra_currency_gained), 0)     AS totalExtraCurrency,
           COALESCE(SUM(idle_currency_gained), 0)      AS totalIdleCurrency,
           COALESCE(SUM(play_minutes), 0)              AS playTime
-        FROM daily_play_log WHERE userId = ? AND date = date('now')
+        FROM daily_play_log WHERE userId = ? AND date = date('now', '+9 hours')
       `).get(userId);
     } catch (e) { console.log("daily_play_log 오류:", e.message); }
 
