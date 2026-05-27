@@ -309,27 +309,27 @@ try {
 
     // 2. 모자 (1xx)
     console.log("[DB-Seeding] Registering Hats (1xx)...");
-    insertItem.run("100", "기본 모자", "학습(Academic) 재화 획득량 기본 비율 (1.0배) 유지", "Hat", "basic", "hat");
-    insertItem.run("101", "하급 모자", "장착 시 학습(Academic) 재화 획득 배율 +10% 증가", "Hat", "low", "hat");
-    insertItem.run("102", "중급 모자", "장착 시 학습(Academic) 재화 획득 배율 +20% 증가", "Hat", "mid", "hat");
-    insertItem.run("103", "상급 모자", "장착 시 학습(Academic) 재화 획득 배율 +30% 증가", "Hat", "high", "hat");
-    insertItem.run("104", "최상급 모자", "장착 시 학습(Academic) 재화 획득 배율 +50% 증가", "Hat", "top", "hat");
+    insertItem.run("100", "기본 모자", "Academic 재화 획득량 기본 비율 (1.0배) 유지", "Hat", "basic", "hat");
+    insertItem.run("101", "하급 모자", "장착 시 Academic 재화 획득 배율 +10% 증가", "Hat", "low", "hat");
+    insertItem.run("102", "중급 모자", "장착 시 Academic 재화 획득 배율 +20% 증가", "Hat", "mid", "hat");
+    insertItem.run("103", "상급 모자", "장착 시 Academic 재화 획득 배율 +30% 증가", "Hat", "high", "hat");
+    insertItem.run("104", "최상급 모자", "장착 시 Academic 재화 획득 배율 +50% 증가", "Hat", "top", "hat");
 
     // 3. 옷 (2xx)
     console.log("[DB-Seeding] Registering Clothes (2xx)...");
-    insertItem.run("200", "기본 옷", "과외(Extra) 재화 획득량 기본 비율 (1.0배) 유지", "Clothes", "basic", "clothes");
-    insertItem.run("201", "하급 옷", "장착 시 과외(Extra) 재화 획득 배율 +10% 증가", "Clothes", "low", "clothes");
-    insertItem.run("202", "중급 옷", "장착 시 과외(Extra) 재화 획득 배율 +20% 증가", "Clothes", "mid", "clothes");
-    insertItem.run("203", "상급 옷", "장착 시 과외(Extra) 재화 획득 배율 +30% 증가", "Clothes", "high", "clothes");
-    insertItem.run("204", "최상급 옷", "장착 시 과외(Extra) 재화 획득 배율 +50% 증가", "Clothes", "top", "clothes");
+    insertItem.run("200", "기본 옷", "Extra 재화 획득량 기본 비율 (1.0배) 유지", "Clothes", "basic", "clothes");
+    insertItem.run("201", "하급 옷", "장착 시 Extra 재화 획득 배율 +10% 증가", "Clothes", "low", "clothes");
+    insertItem.run("202", "중급 옷", "장착 시 Extra 재화 획득 배율 +20% 증가", "Clothes", "mid", "clothes");
+    insertItem.run("203", "상급 옷", "장착 시 Extra 재화 획득 배율 +30% 증가", "Clothes", "high", "clothes");
+    insertItem.run("204", "최상급 옷", "장착 시 Extra 재화 획득 배율 +50% 증가", "Clothes", "top", "clothes");
 
     // 4. 가방 (3xx)
     console.log("[DB-Seeding] Registering Bags (3xx)...");
-    insertItem.run("300", "기본 가방", "방치형(Idle) 재화 획득량 기본 비율 (1.0배) 유지", "Bag", "basic", "bag");
-    insertItem.run("301", "하급 가방", "장착 시 방치형(Idle) 재화 획득 배율 +10% 증가", "Bag", "low", "bag");
-    insertItem.run("302", "중급 가방", "장착 시 방치형(Idle) 재화 획득 배율 +20% 증가", "Bag", "mid", "bag");
-    insertItem.run("303", "상급 가방", "장착 시 방치형(Idle) 재화 획득 배율 +30% 증가", "Bag", "high", "bag");
-    insertItem.run("304", "최상급 가방", "장착 시 방치형(Idle) 재화 획득 배율 +50% 증가", "Bag", "top", "bag");
+    insertItem.run("300", "기본 가방", "Idle 재화 획득량 기본 비율 (1.0배) 유지", "Bag", "basic", "bag");
+    insertItem.run("301", "하급 가방", "장착 시 Idle 재화 획득 배율 +10% 증가", "Bag", "low", "bag");
+    insertItem.run("302", "중급 가방", "장착 시 Idle 재화 획득 배율 +20% 증가", "Bag", "mid", "bag");
+    insertItem.run("303", "상급 가방", "장착 시 Idle 재화 획득 배율 +30% 증가", "Bag", "high", "bag");
+    insertItem.run("304", "최상급 가방", "장착 시 Idle 재화 획득 배율 +50% 증가", "Bag", "top", "bag");
 
     // 코스튬 기본/고정 옵션 사전 시딩
     console.log("[DB-Seeding] Pre-seeding default cosmetic options...");
@@ -380,9 +380,9 @@ try {
     // 6. 프랜즈 (5xx)
     console.log("[DB-Seeding] Registering Friends (5xx)...");
     const friends = [
-      { itemCode: "500", name: "한성냥이", desc: "장착 시 학습(Academic) 재화 획득 배율 2.0배(2배) 적용", optionCode: "CURRENCY_ACADEMIC_RATE" },
-      { itemCode: "501", name: "꼬꼬&꾸꾸", desc: "장착 시 과외(Extra) 재화 획득 배율 2.0배(2배) 적용", optionCode: "CURRENCY_EXTRA_RATE" },
-      { itemCode: "502", name: "상찌", desc: "장착 시 방치형(Idle) 재화 획득 배율 2.0배(2배) 적용", optionCode: "CURRENCY_IDLE_RATE" },
+      { itemCode: "500", name: "한성냥이", desc: "장착 시 Academic 재화 획득 배율 2.0배(2배) 적용", optionCode: "CURRENCY_ACADEMIC_RATE" },
+      { itemCode: "501", name: "꼬꼬&꾸꾸", desc: "장착 시 Extra 재화 획득 배율 2.0배(2배) 적용", optionCode: "CURRENCY_EXTRA_RATE" },
+      { itemCode: "502", name: "상찌", desc: "장착 시 Idle 재화 획득 배율 2.0배(2배) 적용", optionCode: "CURRENCY_IDLE_RATE" },
     ];
 
     for (const f of friends) {
