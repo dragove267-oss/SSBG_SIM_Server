@@ -51,12 +51,12 @@ function getSecondsUntilReset() {
 function isResetDoneToday(userId) {
   const row = db.prepare(`
     SELECT * FROM daily_reset_log
-    WHERE userId = ? AND date(resetAt, '+9 hours') = date('now', '+9 hours')
+    WHERE userId = ? AND date(resetAt) = date('now')
   `).get(userId);
   return !!row;
 }
 
-// userId 값을 studentId로도 포함해서 반환 (블루프린트 호환)
+// ✅ userId 값을 studentId로도 포함해서 반환 (블루프린트 호환)
 function userWithStudentId(user) {
   return { ...user, studentId: user.userId };
 }
@@ -129,7 +129,7 @@ router.post("/login", async (req, res) => {
 
     res.json({
       success: true,
-      // studentId 포함 (블루프린트 호환)
+      // ✅ studentId 포함 (블루프린트 호환)
       user: userWithStudentId(user),
       Data: {
         studentId:        user.userId,
@@ -211,7 +211,7 @@ router.post("/daily-summary", (req, res) => {
           COALESCE(SUM(extra_currency_gained), 0)     AS totalExtraCurrency,
           COALESCE(SUM(idle_currency_gained), 0)      AS totalIdleCurrency,
           COALESCE(SUM(play_minutes), 0)              AS playTime
-        FROM daily_play_log WHERE userId = ? AND date = date('now', '+9 hours')
+        FROM daily_play_log WHERE userId = ? AND date = date('now')
       `).get(userId);
     } catch (e) { console.log("daily_play_log 오류:", e.message); }
 
@@ -242,21 +242,36 @@ router.post("/daily-reset", async (req, res) => {
         resetDoneToday: true, secondsUntilReset: getSecondsUntilReset() });
     }
 
-    const attendanceRes = await axios.get(`http://localhost:4000/attendance?userId=${userId}`);
-    const assignmentRes = await axios.get(`http://localhost:4000/assignment?userId=${userId}`);
-    const attendanceList = attendanceRes.data.attendance;
-    const assignmentList = assignmentRes.data.assignment;
+    let attendanceCount = 0;
+    let assignmentCount = 0;
 
-    syncAttendanceRecords(userId, attendanceList);
-    syncAssignmentRecords(userId, assignmentList);
+    // 학교서버 호출 (실패 시 기존 스냅샷 데이터로 진행)
+    try {
+      const attendanceRes = await axios.get(`http://localhost:4000/attendance?userId=${userId}`);
+      const assignmentRes = await axios.get(`http://localhost:4000/assignment?userId=${userId}`);
+      const attendanceList = attendanceRes.data.attendance;
+      const assignmentList = assignmentRes.data.assignment;
 
-    const attendanceCount = attendanceList.filter(a => a.status === "출석").length;
-    const assignmentCount = assignmentList.filter(a => a.status === "제출").length;
+      syncAttendanceRecords(userId, attendanceList);
+      syncAssignmentRecords(userId, assignmentList);
+
+      attendanceCount = attendanceList.filter(a => a.status === "출석").length;
+      assignmentCount = assignmentList.filter(a => a.status === "제출").length;
+    } catch (schoolErr) {
+      console.warn(`[DailyReset] 학교서버 호출 실패 - 기존 데이터로 진행: ${schoolErr.message}`);
+      // 기존 스냅샷에서 카운트 가져오기
+      const snapshot = db.prepare("SELECT * FROM school_snapshots WHERE userId = ?").get(userId);
+      if (snapshot) {
+        attendanceCount = snapshot.attendanceCount;
+        assignmentCount = snapshot.assignmentCount;
+      }
+    }
+
     const result = applySchoolReward(userId, attendanceCount, assignmentCount);
 
     db.prepare("INSERT INTO daily_reset_log (userId, resetAt) VALUES (?, datetime('now'))").run(userId);
 
-    // 꿈상점 생성
+    // ✅ 꿈상점 생성
     const dreamShop = generateDreamShop(userId);
 
     const user = userWithStudentId(result.user);
@@ -466,7 +481,7 @@ router.post("/admin/craft-definition", (req, res) => {
     const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
     if (!itemDef) return res.status(404).json({ error: "Item not found" });
 
-    //  Consumable 타입만 등록 가능
+    // ✅ Consumable 타입만 등록 가능
     if (itemDef.itemType !== "Consumable")
       return res.status(400).json({ error: "소모성(Consumable) 아이템만 레시피 등록 가능합니다." });
 
@@ -541,7 +556,7 @@ router.post("/admin/shop-definition", (req, res) => {
     const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
     if (!itemDef) return res.status(404).json({ error: "Item not found" });
 
-    //  Consumable 타입만 등록 가능
+    // ✅ Consumable 타입만 등록 가능
     if (itemDef.itemType !== "Consumable")
       return res.status(400).json({ error: "소모성(Consumable) 아이템만 상점 등록 가능합니다." });
 
@@ -574,7 +589,7 @@ router.delete("/admin/shop-definition/:shopId", (req, res) => {
 // 도감
 // ================================================================
 
-//  도감 전체 조회
+// ✅ 도감 전체 조회
 // item_definitions 전체 기준, user_inventory 보유 여부로 isUnlocked 판정
 router.get("/collection/:userId", (req, res) => {
   const { type } = req.query;
@@ -587,7 +602,7 @@ router.get("/collection/:userId", (req, res) => {
   }
 });
 
-//  해금된 itemCode 목록만 반환 (언리얼 아이템 테이블 비교용)
+// ✅ 해금된 itemCode 목록만 반환 (언리얼 아이템 테이블 비교용)
 // = 유저가 가방에 보유한 아이템 코드 목록
 router.get("/collection/:userId/unlocked", (req, res) => {
   const { type } = req.query;
