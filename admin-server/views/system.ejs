@@ -5,8 +5,47 @@
 </div>
 
 <div class="row">
+    <!-- 서버 시간 제어 -->
+    <div class="col-md-8 mb-4">
+        <div class="card shadow border-left-warning" style="border-left: 5px solid #f6c23e;">
+            <div class="card-header py-3 bg-white d-flex justify-content-between align-items-center">
+                <h6 class="m-0 font-weight-bold text-warning"><i class="bi bi-clock-history me-2"></i>서버 시간 제어</h6>
+                <span class="badge bg-secondary" id="offsetBadge">로딩 중...</span>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-muted">실제 시간</label>
+                        <div class="form-control bg-light" id="realTimeDisplay">—</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label fw-bold small text-muted">현재 서버 시간</label>
+                        <div class="form-control bg-warning bg-opacity-10 fw-bold" id="serverTimeDisplay">—</div>
+                    </div>
+                </div>
+
+                <hr>
+                <label class="form-label fw-bold">서버 시간 설정</label>
+                <div class="input-group mb-2">
+                    <input type="datetime-local" id="targetDatetime" class="form-control">
+                    <button class="btn btn-warning" onclick="setServerTime()">
+                        <i class="bi bi-clock-fill me-1"></i>시간 설정
+                    </button>
+                </div>
+                <p class="text-muted small mb-3">지정한 시간으로 서버 시간을 맞춥니다. 꿈상점, 일일 리셋 등에 영향을 줍니다.</p>
+
+                <button class="btn btn-outline-secondary btn-sm" onclick="resetServerTime()">
+                    <i class="bi bi-arrow-counterclockwise me-1"></i>실제 시간으로 초기화
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
     <div class="col-md-8">
         <div class="card shadow border-left-danger mb-4" style="border-left: 5px solid #e74a3b;">
+
             <div class="card-header py-3 bg-white">
                 <h6 class="m-0 font-weight-bold text-danger">데이터베이스 유저 데이터 초기화</h6>
             </div>
@@ -50,6 +89,58 @@ async function resetDatabase() {
         alert('초기화 중 오류 발생: ' + err.message);
     }
 }
+
+// 서버 시간 표시
+function formatKST(isoStr) {
+    return new Date(isoStr).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul', hour12: false });
+}
+
+async function loadServerTime() {
+    try {
+        const res = await fetch('/system/server-time');
+        const data = await res.json();
+        document.getElementById('realTimeDisplay').textContent = formatKST(data.realTime);
+        document.getElementById('serverTimeDisplay').textContent = formatKST(data.serverTime);
+        const offsetH = Math.round(data.offsetMs / 3600000);
+        if (data.offsetMs === 0) {
+            document.getElementById('offsetBadge').textContent = '실제 시간';
+            document.getElementById('offsetBadge').className = 'badge bg-success';
+        } else {
+            document.getElementById('offsetBadge').textContent = offsetH >= 0 ? `+${offsetH}시간` : `${offsetH}시간`;
+            document.getElementById('offsetBadge').className = 'badge bg-warning text-dark';
+        }
+    } catch (e) {}
+}
+
+async function setServerTime() {
+    const val = document.getElementById('targetDatetime').value;
+    if (!val) { alert('날짜/시간을 선택해주세요.'); return; }
+    const res = await fetch('/system/set-server-time', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetDatetime: val })
+    });
+    const data = await res.json();
+    if (data.success) {
+        alert(`서버 시간 설정 완료: ${formatKST(data.serverTime)}`);
+        loadServerTime();
+    } else {
+        alert('오류: ' + data.error);
+    }
+}
+
+async function resetServerTime() {
+    const res = await fetch('/system/reset-server-time', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+        alert('서버 시간이 실제 시간으로 초기화되었습니다.');
+        loadServerTime();
+    }
+}
+
+// 페이지 로드 시 자동 조회 + 5초마다 갱신
+loadServerTime();
+setInterval(loadServerTime, 5000);
 </script>
 
 <%- include('partials/footer') %>

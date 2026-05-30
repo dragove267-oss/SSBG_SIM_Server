@@ -115,7 +115,6 @@ function connectDBs() {
                 slotIndex  INTEGER NOT NULL CHECK(slotIndex >= 0 AND slotIndex < 80),
                 isEquipped INTEGER NOT NULL DEFAULT 0 CHECK(isEquipped IN (0, 1)),
                 obtainedAt TEXT DEFAULT (datetime('now')),
-                UNIQUE(userId, itemCode),
                 UNIQUE(userId, slotIndex)
             )
         `);
@@ -179,6 +178,16 @@ function connectDBs() {
         `);
 
         db.exec(`
+            CREATE TABLE IF NOT EXISTS user_item_options (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                inventoryId INTEGER NOT NULL REFERENCES user_inventory(id) ON DELETE CASCADE,
+                optionCode  TEXT NOT NULL REFERENCES item_options(optionCode),
+                value       REAL NOT NULL,
+                UNIQUE(inventoryId, optionCode)
+            )
+        `);
+
+        db.exec(`
             CREATE TABLE IF NOT EXISTS shop_definitions (
                 shopId       TEXT PRIMARY KEY,
                 itemCode     TEXT NOT NULL REFERENCES item_definitions(itemCode),
@@ -217,6 +226,14 @@ function connectDBs() {
                 ('CONSUMABLE_EXP_RATE',     '소모성 EXP 배율',       '소모 시 EXP 배율 증가',          'multiplier', 1.5),
                 ('CURRENCY_EXP_FLAT',       'EXP 고정 증가',         '장착 시 EXP 획득량 고정 증가',   'flat',       0.0)
         `).run();
+
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS server_config (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        `);
+        db.prepare(`INSERT OR IGNORE INTO server_config (key, value) VALUES ('time_offset_ms', '0')`).run();
 
         // 학사 서버용 테이블 (studentId → userId 통일)
         schoolDb.exec(`
@@ -311,11 +328,11 @@ app.get("/users/:userId", (req, res) => {
             `).all(userId);
             for (const inv of inventory) {
                 inv.options = db.prepare(`
-                    SELECT ido.optionCode, ido.value, io.name, io.valueType, io.description
-                    FROM item_definition_options ido
-                    JOIN item_options io ON ido.optionCode = io.optionCode
-                    WHERE ido.itemCode = ?
-                `).all(inv.itemCode);
+                    SELECT uio.optionCode, uio.value, io.name, io.valueType, io.description
+                    FROM user_item_options uio
+                    JOIN item_options io ON uio.optionCode = io.optionCode
+                    WHERE uio.inventoryId = ?
+                `).all(inv.id);
             }
         } catch (e) {}
         try {
@@ -575,7 +592,42 @@ app.post("/users/:userId/inventory/delete", (req, res) => {
     const { userId } = req.params;
     const { id } = req.body;
     try {
+        db.prepare("DELETE FROM user_item_options WHERE inventoryId = ?").run(id);
         db.prepare("DELETE FROM user_inventory WHERE id = ? AND userId = ?").run(id, userId);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 인스턴스별 옵션 수정
+app.post("/users/:userId/inventory/:inventoryId/option", (req, res) => {
+    const { userId, inventoryId } = req.params;
+    const { optionCode, value } = req.body;
+    try {
+        // 인벤토리 소유 확인
+        const inv = db.prepare("SELECT * FROM user_inventory WHERE id = ? AND userId = ?").get(inventoryId, userId);
+        if (!inv) return res.status(404).json({ error: "인벤토리 아이템을 찾을 수 없습니다." });
+
+        db.prepare(`
+            INSERT OR REPLACE INTO user_item_options (inventoryId, optionCode, value)
+            VALUES (?, ?, ?)
+        `).run(inventoryId, optionCode, parseFloat(value));
+        res.json({ success: true, inventoryId, optionCode, value: parseFloat(value) });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 인스턴스 옵션 삭제
+app.post("/users/:userId/inventory/:inventoryId/option/delete", (req, res) => {
+    const { userId, inventoryId } = req.params;
+    const { optionCode } = req.body;
+    try {
+        const inv = db.prepare("SELECT * FROM user_inventory WHERE id = ? AND userId = ?").get(inventoryId, userId);
+        if (!inv) return res.status(404).json({ error: "인벤토리 아이템을 찾을 수 없습니다." });
+
+        db.prepare("DELETE FROM user_item_options WHERE inventoryId = ? AND optionCode = ?").run(inventoryId, optionCode);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -715,6 +767,43 @@ app.get("/logs", (req, res) => {
 });
 
 app.get("/system", (req, res) => res.render("system", { page: "system" }));
+
+// 현재 서버 시간(오프셋 적용) 조회
+app.get("/system/server-time", (req, res) => {
+    try {
+        const row = db.prepare("SELECT value FROM server_config WHERE key = 'time_offset_ms'").get();
+        const offsetMs = row ? parseInt(row.value, 10) : 0;
+        const serverNow = new Date(Date.now() + offsetMs);
+        res.json({ success: true, serverTime: serverNow.toISOString(), offsetMs, realTime: new Date().toISOString() });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 특정 날짜/시간으로 서버 시간 설정
+app.post("/system/set-server-time", (req, res) => {
+    try {
+        const { targetDatetime } = req.body; // ISO string or "YYYY-MM-DDTHH:mm"
+        const target = new Date(targetDatetime);
+        if (isNaN(target.getTime())) return res.status(400).json({ error: "잘못된 날짜 형식입니다." });
+        const offsetMs = target.getTime() - Date.now();
+        db.prepare("INSERT OR REPLACE INTO server_config (key, value) VALUES ('time_offset_ms', ?)").run(String(offsetMs));
+        res.json({ success: true, serverTime: target.toISOString(), offsetMs });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 서버 시간 실제 시간으로 초기화
+app.post("/system/reset-server-time", (req, res) => {
+    try {
+        db.prepare("INSERT OR REPLACE INTO server_config (key, value) VALUES ('time_offset_ms', '0')").run();
+        res.json({ success: true, serverTime: new Date().toISOString(), offsetMs: 0 });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 
 app.post("/system/reset-db", (req, res) => {
     const { exec } = require("child_process");

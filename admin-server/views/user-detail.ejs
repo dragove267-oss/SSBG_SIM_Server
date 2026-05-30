@@ -91,17 +91,32 @@
                                     <tr id="inv-row-<%= item.id %>">
                                         <td class="ps-4 fw-bold">#<%= item.slotIndex %></td>
                                         <td>
-                                            <div class="fw-bold"><%= item.name %></div>
+                                            <div class="fw-bold"><%= item.name %> <span class="text-muted x-small">(inv:<%= item.id %>)</span></div>
                                             <div class="x-small text-muted font-monospace"><%= item.itemCode %></div>
                                             <% if (item.options && item.options.length > 0) { %>
                                                 <div class="d-flex flex-wrap gap-1 mt-1">
                                                     <% item.options.forEach(opt => { %>
-                                                        <span class="badge bg-primary text-white border x-small" style="font-size: 0.65rem;" title="<%= opt.description %>">
-                                                            <%= opt.name %>: <%= opt.valueType === 'multiplier' ? opt.value + 'x' : '+' + opt.value %>
-                                                        </span>
+                                                        <div class="d-inline-flex align-items-center gap-1 border rounded px-1" style="font-size: 0.65rem;">
+                                                            <span class="fw-bold text-primary" title="<%= opt.description %>"><%= opt.name %>:</span>
+                                                            <input type="number" step="0.1" value="<%= opt.value %>" style="width:50px;font-size:0.65rem;" class="form-control form-control-sm p-0 text-center border-0"
+                                                                id="opt-<%= item.id %>-<%= opt.optionCode %>">
+                                                            <button class="btn btn-link btn-sm p-0 text-success" style="font-size:0.65rem;" onclick="saveOption('<%= item.id %>', '<%= opt.optionCode %>', document.getElementById('opt-<%= item.id %>-<%= opt.optionCode %>').value)">💾</button>
+                                                            <button class="btn btn-link btn-sm p-0 text-danger" style="font-size:0.65rem;" onclick="deleteOption('<%= item.id %>', '<%= opt.optionCode %>')">✕</button>
+                                                        </div>
                                                     <% }) %>
                                                 </div>
                                             <% } %>
+                                            <div class="mt-1">
+                                                <select class="form-select form-select-sm d-inline-block" style="width:auto;font-size:0.6rem;" id="add-opt-select-<%= item.id %>">
+                                                    <option value="">+ 옵션 추가</option>
+                                                    <option value="CURRENCY_ACADEMIC_RATE">Academic 배율</option>
+                                                    <option value="CURRENCY_EXTRA_RATE">Extra 배율</option>
+                                                    <option value="CURRENCY_IDLE_RATE">Idle 배율</option>
+                                                    <option value="CURRENCY_EXP_FLAT">EXP 고정</option>
+                                                </select>
+                                                <input type="number" step="0.1" value="1.1" style="width:50px;font-size:0.6rem;" class="form-control form-control-sm d-inline-block p-0 text-center" id="add-opt-val-<%= item.id %>">
+                                                <button class="btn btn-sm btn-outline-primary" style="font-size:0.6rem;" onclick="addOption('<%= item.id %>')">추가</button>
+                                            </div>
                                         </td>
                                         <td><span class="badge bg-light text-dark border text-uppercase" style="font-size: 0.7rem;"><%= item.itemType %></span></td>
                                         <td><% if(item.isEquipped) { %><span class="badge bg-success">장착중</span><% } else { %><span class="text-muted">-</span><% } %></td>
@@ -178,6 +193,31 @@ async function saveCollection() {
     const unlockedCodes = Array.from(document.querySelectorAll('.collection-checkbox')).filter(cb => cb.checked).map(cb => cb.value);
     const res = await fetch(`/users/<%= user.userId %>/collection/save`, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ unlockedCodes }) });
     if((await res.json()).success) showMsg();
+}
+async function saveOption(inventoryId, optionCode, value) {
+    const res = await fetch(`/users/<%= user.userId %>/inventory/${inventoryId}/option`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ optionCode, value: parseFloat(value) })
+    });
+    if((await res.json()).success) { showMsg(); }
+}
+async function deleteOption(inventoryId, optionCode) {
+    if(!confirm(`${optionCode} 옵션을 삭제하시겠습니까?`)) return;
+    const res = await fetch(`/users/<%= user.userId %>/inventory/${inventoryId}/option/delete`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ optionCode })
+    });
+    if((await res.json()).success) location.reload();
+}
+async function addOption(inventoryId) {
+    const optionCode = document.getElementById(`add-opt-select-${inventoryId}`).value;
+    const value = document.getElementById(`add-opt-val-${inventoryId}`).value;
+    if(!optionCode) return alert('옵션을 선택하세요.');
+    const res = await fetch(`/users/<%= user.userId %>/inventory/${inventoryId}/option`, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ optionCode, value: parseFloat(value) })
+    });
+    if((await res.json()).success) location.reload();
 }
 </script>
 <style>.cursor-pointer { cursor: pointer; } .x-small { font-size: 0.7rem; }</style>

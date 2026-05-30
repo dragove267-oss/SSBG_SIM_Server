@@ -174,8 +174,17 @@ db.exec(`
     slotIndex  INTEGER NOT NULL CHECK(slotIndex >= 0 AND slotIndex < ${INVENTORY_SLOT_COUNT}),
     isEquipped INTEGER NOT NULL DEFAULT 0 CHECK(isEquipped IN (0, 1)),
     obtainedAt TEXT DEFAULT (datetime('now')),
-    UNIQUE(userId, itemCode),
     UNIQUE(userId, slotIndex)
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_item_options (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    inventoryId INTEGER NOT NULL REFERENCES user_inventory(id) ON DELETE CASCADE,
+    optionCode  TEXT NOT NULL REFERENCES item_options(optionCode),
+    value       REAL NOT NULL,
+    UNIQUE(inventoryId, optionCode)
   )
 `);
 
@@ -250,6 +259,16 @@ db.exec(`
   )
 `);
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS server_config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )
+`);
+// 기본값 초기화 (없을 때만)
+db.prepare(`INSERT OR IGNORE INTO server_config (key, value) VALUES ('time_offset_ms', '0')`).run();
+
+
 // ================================================================
 // 데이터베이스 자가 치유 및 자동 시딩 (Self-Healing Seeding)
 // ================================================================
@@ -289,16 +308,16 @@ try {
     // 1. 소모품 (0xx)
     console.log("[DB-Seeding] Registering Consumables (0xx)...");
     const consumables = [
-      { itemCode: "001", name: "하늘책",     desc: "장착 시 꿈상점 등장 아이템 1개 추가 제공", effect: "shop_add_item",   val: 1 },
-      { itemCode: "002", name: "파란책",     desc: "장착 시 꿈상점 등장 아이템 1~2개 추가 제공 (각 50%)", effect: "shop_add_item",   val: 2 },
-      { itemCode: "003", name: "은색책",     desc: "장착 시 꿈상점 등장 아이템 2개 추가 제공", effect: "shop_add_item",   val: 3 },
-      { itemCode: "004", name: "금색책",     desc: "장착 시 꿈상점 등장 아이템 2~3개 추가 제공 (각 50%)", effect: "shop_add_item",   val: 4 },
-      { itemCode: "005", name: "보라책",     desc: "장착 시 꿈상점 등장 아이템 3개 추가 제공", effect: "shop_add_item",   val: 5 },
-      { itemCode: "006", name: "안경",      desc: "장착 시 꿈상점 일일 구매 횟수 제한 +1회 증가", effect: "shop_add_buy",    val: 1 },
-      { itemCode: "007", name: "오렌지펜",   desc: "장착 시 꿈상점 코스튬 1개의 최소 등급을 중급(mid) 이상으로 보장", effect: "shop_grade_mid",  val: 1 },
-      { itemCode: "008", name: "빛안경",     desc: "장착 시 꿈상점 일일 구매 횟수 제한 +2회 증가", effect: "shop_add_buy",    val: 2 },
-      { itemCode: "009", name: "은펜",       desc: "장착 시 꿈상점 코스튬 2개의 최소 등급을 중급(mid) 이상으로 보장", effect: "shop_grade_mid",  val: 2 },
-      { itemCode: "010", name: "금펜",       desc: "장착 시 꿈상점 코스튬 1개의 최소 등급을 상급(high) 이상으로 보장", effect: "shop_grade_high", val: 1 },
+      { itemCode: "001", name: "하늘책",     desc: "꿈상점 등장 아이템 +1", effect: "shop_add_item",   val: 1 },
+      { itemCode: "002", name: "파란책",     desc: "꿈상점 등장 아이템 +1 or +2", effect: "shop_add_item",   val: 2 },
+      { itemCode: "003", name: "은색책",     desc: "꿈상점 등장 아이템 +2", effect: "shop_add_item",   val: 3 },
+      { itemCode: "004", name: "금색책",     desc: "꿈상점 등장 아이템 +2 or +3", effect: "shop_add_item",   val: 4 },
+      { itemCode: "005", name: "보라책",     desc: "꿈상점 등장 아이템 +3", effect: "shop_add_item",   val: 5 },
+      { itemCode: "006", name: "안경",      desc: "꿈상점 구매 횟수 +1", effect: "shop_add_buy",    val: 1 },
+      { itemCode: "007", name: "오렌지펜",   desc: "꿈상점 아이템 1가지 최소등급 중급", effect: "shop_grade_mid",  val: 1 },
+      { itemCode: "008", name: "빛안경",     desc: "꿈상점 구매 횟수 +2", effect: "shop_add_buy",    val: 2 },
+      { itemCode: "009", name: "은펜",       desc: "꿈상점 아이템 2가지 최소등급 중급", effect: "shop_grade_mid",  val: 2 },
+      { itemCode: "010", name: "금펜",       desc: "꿈상점 아이템 1가지 최소등급 상급", effect: "shop_grade_high", val: 1 },
     ];
 
     for (const c of consumables) {
@@ -309,27 +328,27 @@ try {
 
     // 2. 모자 (1xx)
     console.log("[DB-Seeding] Registering Hats (1xx)...");
-    insertItem.run("100", "기본 모자", "Academic 재화 획득량 기본 비율 (1.0배) 유지", "Hat", "basic", "hat");
-    insertItem.run("101", "하급 모자", "장착 시 Academic 재화 획득 배율 +10% 증가", "Hat", "low", "hat");
-    insertItem.run("102", "중급 모자", "장착 시 Academic 재화 획득 배율 +20% 증가", "Hat", "mid", "hat");
-    insertItem.run("103", "상급 모자", "장착 시 Academic 재화 획득 배율 +30% 증가", "Hat", "high", "hat");
-    insertItem.run("104", "최상급 모자", "장착 시 Academic 재화 획득 배율 +50% 증가", "Hat", "top", "hat");
+    insertItem.run("100", "기본 모자", "Academic x1.0", "Hat", "basic", "hat");
+    insertItem.run("101", "하급 모자", "Academic x1.1", "Hat", "low", "hat");
+    insertItem.run("102", "중급 모자", "Academic x1.2", "Hat", "mid", "hat");
+    insertItem.run("103", "상급 모자", "Academic x1.3", "Hat", "high", "hat");
+    insertItem.run("104", "최상급 모자", "Academic x1.5", "Hat", "top", "hat");
 
     // 3. 옷 (2xx)
     console.log("[DB-Seeding] Registering Clothes (2xx)...");
-    insertItem.run("200", "기본 옷", "Extra 재화 획득량 기본 비율 (1.0배) 유지", "Clothes", "basic", "clothes");
-    insertItem.run("201", "하급 옷", "장착 시 Extra 재화 획득 배율 +10% 증가", "Clothes", "low", "clothes");
-    insertItem.run("202", "중급 옷", "장착 시 Extra 재화 획득 배율 +20% 증가", "Clothes", "mid", "clothes");
-    insertItem.run("203", "상급 옷", "장착 시 Extra 재화 획득 배율 +30% 증가", "Clothes", "high", "clothes");
-    insertItem.run("204", "최상급 옷", "장착 시 Extra 재화 획득 배율 +50% 증가", "Clothes", "top", "clothes");
+    insertItem.run("200", "기본 옷", "Extra x1.0", "Clothes", "basic", "clothes");
+    insertItem.run("201", "하급 옷", "Extra x1.1", "Clothes", "low", "clothes");
+    insertItem.run("202", "중급 옷", "Extra x1.2", "Clothes", "mid", "clothes");
+    insertItem.run("203", "상급 옷", "Extra x1.3", "Clothes", "high", "clothes");
+    insertItem.run("204", "최상급 옷", "Extra x1.5", "Clothes", "top", "clothes");
 
     // 4. 가방 (3xx)
     console.log("[DB-Seeding] Registering Bags (3xx)...");
-    insertItem.run("300", "기본 가방", "Idle 재화 획득량 기본 비율 (1.0배) 유지", "Bag", "basic", "bag");
-    insertItem.run("301", "하급 가방", "장착 시 Idle 재화 획득 배율 +10% 증가", "Bag", "low", "bag");
-    insertItem.run("302", "중급 가방", "장착 시 Idle 재화 획득 배율 +20% 증가", "Bag", "mid", "bag");
-    insertItem.run("303", "상급 가방", "장착 시 Idle 재화 획득 배율 +30% 증가", "Bag", "high", "bag");
-    insertItem.run("304", "최상급 가방", "장착 시 Idle 재화 획득 배율 +50% 증가", "Bag", "top", "bag");
+    insertItem.run("300", "기본 가방", "Idle x1.0", "Bag", "basic", "bag");
+    insertItem.run("301", "하급 가방", "Idle x1.1", "Bag", "low", "bag");
+    insertItem.run("302", "중급 가방", "Idle x1.2", "Bag", "mid", "bag");
+    insertItem.run("303", "상급 가방", "Idle x1.3", "Bag", "high", "bag");
+    insertItem.run("304", "최상급 가방", "Idle x1.5", "Bag", "top", "bag");
 
     // 코스튬 기본/고정 옵션 사전 시딩
     console.log("[DB-Seeding] Pre-seeding default cosmetic options...");
@@ -359,16 +378,16 @@ try {
     // 5. 가구 (4xx)
     console.log("[DB-Seeding] Registering Themes (4xx)...");
     const themes = [
-      { itemCode: "400", name: "나무 의자", desc: "장착 시 경험치(EXP) 획득량 고정 +50 증가" },
-      { itemCode: "401", name: "안락한 침대", desc: "장착 시 경험치(EXP) 획득량 고정 +50 증가" },
-      { itemCode: "402", name: "핑크 컴퓨터", desc: "장착 시 경험치(EXP) 획득량 고정 +50 증가" },
-      { itemCode: "403", name: "옷걸이", desc: "장착 시 경험치(EXP) 획득량 고정 +50 증가" },
-      { itemCode: "404", name: "다림질대", desc: "장착 시 경험치(EXP) 획득량 고정 +50 증가" },
-      { itemCode: "405", name: "선반", desc: "장착 시 경험치(EXP) 획득량 고정 +50 증가" },
-      { itemCode: "406", name: "소파", desc: "장착 시 경험치(EXP) 획득량 고정 +50 증가" },
-      { itemCode: "407", name: "가스레인지", desc: "장착 시 경험치(EXP) 획득량 고정 +50 증가" },
-      { itemCode: "408", name: "테이블", desc: "장착 시 경험치(EXP) 획득량 고정 +50 증가" },
-      { itemCode: "409", name: "세탁기", desc: "장착 시 경험치(EXP) 획득량 고정 +50 증가" }
+      { itemCode: "400", name: "나무 의자", desc: "EXP +50" },
+      { itemCode: "401", name: "안락한 침대", desc: "EXP +50" },
+      { itemCode: "402", name: "핑크 컴퓨터", desc: "EXP +50" },
+      { itemCode: "403", name: "옷걸이", desc: "EXP +50" },
+      { itemCode: "404", name: "다림질대", desc: "EXP +50" },
+      { itemCode: "405", name: "선반", desc: "EXP +50" },
+      { itemCode: "406", name: "소파", desc: "EXP +50" },
+      { itemCode: "407", name: "가스레인지", desc: "EXP +50" },
+      { itemCode: "408", name: "테이블", desc: "EXP +50" },
+      { itemCode: "409", name: "세탁기", desc: "EXP +50" }
     ];
 
     for (const t of themes) {
@@ -380,9 +399,9 @@ try {
     // 6. 프랜즈 (5xx)
     console.log("[DB-Seeding] Registering Friends (5xx)...");
     const friends = [
-      { itemCode: "500", name: "한성냥이", desc: "장착 시 Academic 재화 획득 배율 2.0배(2배) 적용", optionCode: "CURRENCY_ACADEMIC_RATE" },
-      { itemCode: "501", name: "꼬꼬&꾸꾸", desc: "장착 시 Extra 재화 획득 배율 2.0배(2배) 적용", optionCode: "CURRENCY_EXTRA_RATE" },
-      { itemCode: "502", name: "상찌", desc: "장착 시 Idle 재화 획득 배율 2.0배(2배) 적용", optionCode: "CURRENCY_IDLE_RATE" },
+      { itemCode: "500", name: "한성냥이", desc: "Academic x2.0", optionCode: "CURRENCY_ACADEMIC_RATE" },
+      { itemCode: "501", name: "꼬꼬&꾸꾸", desc: "Extra x2.0", optionCode: "CURRENCY_EXTRA_RATE" },
+      { itemCode: "502", name: "상찌", desc: "Idle x2.0", optionCode: "CURRENCY_IDLE_RATE" },
     ];
 
     for (const f of friends) {

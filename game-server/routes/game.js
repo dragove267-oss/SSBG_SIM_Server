@@ -2,6 +2,7 @@ const express = require("express");
 const axios = require("axios");
 const router = express.Router();
 const db = require("../database/db");
+const { getServerTime, getServerToday } = require("../services/timeHelper");
 const userService = require("../services/userService");
 const {
   getOrCreateUser,
@@ -41,7 +42,7 @@ const {
 // ================================================================
 
 function getSecondsUntilReset() {
-  const now = new Date();
+  const now = getServerTime();
   const nextReset = new Date(now);
   nextReset.setUTCHours(6, 0, 0, 0);
   if (now.getUTCHours() >= 6) nextReset.setUTCDate(nextReset.getUTCDate() + 1);
@@ -49,10 +50,11 @@ function getSecondsUntilReset() {
 }
 
 function isResetDoneToday(userId) {
+  const today = getServerToday();
   const row = db.prepare(`
     SELECT * FROM daily_reset_log
-    WHERE userId = ? AND date(resetAt) = date('now')
-  `).get(userId);
+    WHERE userId = ? AND date(resetAt) = ?
+  `).get(userId, today);
   return !!row;
 }
 
@@ -211,8 +213,8 @@ router.post("/daily-summary", (req, res) => {
           COALESCE(SUM(extra_currency_gained), 0)     AS totalExtraCurrency,
           COALESCE(SUM(idle_currency_gained), 0)      AS totalIdleCurrency,
           COALESCE(SUM(play_minutes), 0)              AS playTime
-        FROM daily_play_log WHERE userId = ? AND date = date('now')
-      `).get(userId);
+        FROM daily_play_log WHERE userId = ? AND date = ?
+      `).get(userId, getServerToday());
     } catch (e) { console.log("daily_play_log 오류:", e.message); }
 
     res.json({
@@ -269,7 +271,7 @@ router.post("/daily-reset", async (req, res) => {
 
     const result = applySchoolReward(userId, attendanceCount, assignmentCount);
 
-    db.prepare("INSERT INTO daily_reset_log (userId, resetAt) VALUES (?, datetime('now'))").run(userId);
+    db.prepare("INSERT INTO daily_reset_log (userId, resetAt) VALUES (?, ?)").run(userId, getServerTime().toISOString());
 
     // ✅ 꿈상점 생성
     const dreamShop = generateDreamShop(userId);
@@ -293,7 +295,7 @@ router.post("/daily-reset", async (req, res) => {
 // ================================================================
 
 router.get("/server-time", (req, res) => {
-  const now = new Date();
+  const now = getServerTime();
   res.json({
     utcHour: now.getUTCHours(), utcDay: now.getUTCDate(),
     utcMonth: now.getUTCMonth() + 1, utcYear: now.getUTCFullYear(),
@@ -357,11 +359,11 @@ router.post("/inventory/add", (req, res) => {
 });
 
 router.post("/inventory/equip", (req, res) => {
-  const { userId, itemCode } = req.body;
-  if (!userId || !itemCode)
-    return res.status(400).json({ error: "userId, itemCode required" });
+  const { userId, itemCode, inventoryId } = req.body;
+  if (!userId || (!itemCode && !inventoryId))
+    return res.status(400).json({ error: "userId and (itemCode or inventoryId) required" });
   try {
-    res.json(equipItem(userId, itemCode));
+    res.json(equipItem(userId, itemCode, inventoryId));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -369,22 +371,22 @@ router.post("/inventory/equip", (req, res) => {
 
 // Consumable 전용 장착 (최대 3개, 초과 시 가장 왼쪽 해제)
 router.post("/inventory/equip-consumable", (req, res) => {
-  const { userId, itemCode } = req.body;
-  if (!userId || !itemCode)
-    return res.status(400).json({ error: "userId, itemCode required" });
+  const { userId, itemCode, inventoryId } = req.body;
+  if (!userId || (!itemCode && !inventoryId))
+    return res.status(400).json({ error: "userId and (itemCode or inventoryId) required" });
   try {
-    res.json(equipConsumable(userId, itemCode));
+    res.json(equipConsumable(userId, itemCode, inventoryId));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 router.post("/inventory/unequip", (req, res) => {
-  const { userId, itemCode } = req.body;
-  if (!userId || !itemCode)
-    return res.status(400).json({ error: "userId, itemCode required" });
+  const { userId, itemCode, inventoryId } = req.body;
+  if (!userId || (!itemCode && !inventoryId))
+    return res.status(400).json({ error: "userId and (itemCode or inventoryId) required" });
   try {
-    res.json(unequipItem(userId, itemCode));
+    res.json(unequipItem(userId, itemCode, inventoryId));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

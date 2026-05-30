@@ -1,4 +1,5 @@
 const db = require("../database/db");
+const { getServerToday } = require("./timeHelper");
 
 const REWARD_CONFIG = {
   attendance: { extraCurrency: 100, exp: 30 },
@@ -23,17 +24,32 @@ function getOrCreateUser(userId) {
     ).run(userId);
     user = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
 
-    //  기본 아이템 자동 지급 + 장착
+    //  기본 아이템 자동 지급 + 장착 + 기본 옵션 복사
     const defaultItems = ["100", "200", "300"];
     for (let i = 0; i < defaultItems.length; i++) {
       const itemCode = defaultItems[i];
       const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
       if (!itemDef) continue;
 
-      db.prepare(`
-        INSERT OR IGNORE INTO user_inventory (userId, itemCode, slotIndex, isEquipped)
+      const already = db.prepare(
+        "SELECT id FROM user_inventory WHERE userId = ? AND itemCode = ?"
+      ).get(userId, itemCode);
+      if (already) continue;
+
+      const result = db.prepare(`
+        INSERT INTO user_inventory (userId, itemCode, slotIndex, isEquipped)
         VALUES (?, ?, ?, 1)
       `).run(userId, itemCode, i);
+
+      // 기본 옵션을 user_item_options로 복사
+      const baseOptions = db.prepare(
+        "SELECT optionCode, value FROM item_definition_options WHERE itemCode = ?"
+      ).all(itemCode);
+      for (const opt of baseOptions) {
+        db.prepare(
+          "INSERT OR IGNORE INTO user_item_options (inventoryId, optionCode, value) VALUES (?, ?, ?)"
+        ).run(result.lastInsertRowid, opt.optionCode, opt.value);
+      }
     }
   }
   return user;
@@ -45,11 +61,11 @@ function getOrCreateUser(userId) {
 
 function getUserOptionValue(userId, optionCode) {
   const options = db.prepare(`
-    SELECT ido.value, io.valueType
+    SELECT uio.value, io.valueType
     FROM user_inventory ui
-    JOIN item_definition_options ido ON ui.itemCode = ido.itemCode
-    JOIN item_options io ON ido.optionCode = io.optionCode
-    WHERE ui.userId = ? AND ido.optionCode = ? AND ui.isEquipped = 1
+    JOIN user_item_options uio ON ui.id = uio.inventoryId
+    JOIN item_options io ON uio.optionCode = io.optionCode
+    WHERE ui.userId = ? AND uio.optionCode = ? AND ui.isEquipped = 1
   `).all(userId, optionCode);
 
   if (options.length === 0) return null;
@@ -64,11 +80,11 @@ function getUserOptionValue(userId, optionCode) {
 
 function getUserFlatOptionValue(userId, optionCode) {
   const options = db.prepare(`
-    SELECT ido.value
+    SELECT uio.value
     FROM user_inventory ui
-    JOIN item_definition_options ido ON ui.itemCode = ido.itemCode
-    JOIN item_options io ON ido.optionCode = io.optionCode
-    WHERE ui.userId = ? AND ido.optionCode = ? AND ui.isEquipped = 1
+    JOIN user_item_options uio ON ui.id = uio.inventoryId
+    JOIN item_options io ON uio.optionCode = io.optionCode
+    WHERE ui.userId = ? AND uio.optionCode = ? AND ui.isEquipped = 1
   `).all(userId, optionCode);
   return options.reduce((acc, o) => acc + o.value, 0.0);
 }
@@ -254,10 +270,13 @@ function addItemToInventory(userId, itemCode) {
   const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
   if (!itemDef) return { success: false, message: "Item not found" };
 
-  const already = db.prepare(
-    "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
-  ).get(userId, itemCode);
-  if (already) return { success: false, message: "Item already owned" };
+  // Friend/Theme만 중복 소지 불가
+  if (itemDef.itemType === "Friend" || itemDef.itemType === "Theme") {
+    const already = db.prepare(
+      "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
+    ).get(userId, itemCode);
+    if (already) return { success: false, message: "Item already owned" };
+  }
 
   const usedSlots = db.prepare(
     "SELECT slotIndex FROM user_inventory WHERE userId = ?"
@@ -269,22 +288,34 @@ function addItemToInventory(userId, itemCode) {
   }
   if (emptySlot === null) return { success: false, message: "Inventory full" };
 
-  db.prepare(`
+  const result = db.prepare(`
     INSERT INTO user_inventory (userId, itemCode, slotIndex, isEquipped)
     VALUES (?, ?, ?, 0)
   `).run(userId, itemCode, emptySlot);
 
-  return { success: true, slotIndex: emptySlot, item: itemDef };
+  const inventoryId = result.lastInsertRowid;
+
+  // 기본 옵션을 user_item_options로 복사
+  const baseOptions = db.prepare(
+    "SELECT optionCode, value FROM item_definition_options WHERE itemCode = ?"
+  ).all(itemCode);
+  for (const opt of baseOptions) {
+    db.prepare(
+      "INSERT OR IGNORE INTO user_item_options (inventoryId, optionCode, value) VALUES (?, ?, ?)"
+    ).run(inventoryId, opt.optionCode, opt.value);
+  }
+
+  return { success: true, slotIndex: emptySlot, item: itemDef, inventoryId };
 }
 
 // Consumable 전용 장착 (최대 3개, 초과 시 가장 왼쪽 해제)
-function equipConsumable(userId, itemCode) {
-  const invItem = db.prepare(
-    "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
-  ).get(userId, itemCode);
+function equipConsumable(userId, itemCode, inventoryId) {
+  const invItem = inventoryId
+    ? db.prepare("SELECT * FROM user_inventory WHERE id = ? AND userId = ?").get(inventoryId, userId)
+    : db.prepare("SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?").get(userId, itemCode);
   if (!invItem) return { success: false, message: "Item not in inventory" };
 
-  const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
+  const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(invItem.itemCode);
   if (itemDef.itemType !== "Consumable")
     return { success: false, message: "Consumable 아이템만 이 함수로 장착 가능합니다." };
 
@@ -295,11 +326,11 @@ function equipConsumable(userId, itemCode) {
   // 새 아이템의 효과 타입 조회
   const targetEffect = db.prepare(
     "SELECT effectType FROM consumable_effects WHERE itemCode = ?"
-  ).get(itemCode);
+  ).get(invItem.itemCode);
   if (!targetEffect) return { success: false, message: "소모품 특수 효과 정보를 찾을 수 없습니다." };
 
   // 현재 장착된 Consumable 목록과 효과 조회
-  const equipped = db.prepare(`
+  const equippedList = db.prepare(`
     SELECT ui.id, ui.slotIndex, ui.itemCode, ce.effectType
     FROM user_inventory ui
     JOIN consumable_effects ce ON ui.itemCode = ce.itemCode
@@ -310,33 +341,30 @@ function equipConsumable(userId, itemCode) {
   let unequippedCode = null;
 
   // 동일 효과를 지닌 장착 소모품 탐색 (동일효과 중복착용 제한 스왑)
-  const duplicate = equipped.find(e => e.effectType === targetEffect.effectType);
+  const duplicate = equippedList.find(e => e.effectType === targetEffect.effectType);
 
   if (duplicate) {
     db.prepare("UPDATE user_inventory SET isEquipped = 0 WHERE id = ?").run(duplicate.id);
     unequippedCode = duplicate.itemCode;
-  } else if (equipped.length >= 3) {
+  } else if (equippedList.length >= 3) {
     // 3개 꽉 찬 경우 가장 왼쪽 해제
-    db.prepare("UPDATE user_inventory SET isEquipped = 0 WHERE id = ?").run(equipped[0].id);
-    unequippedCode = equipped[0].itemCode;
+    db.prepare("UPDATE user_inventory SET isEquipped = 0 WHERE id = ?").run(equippedList[0].id);
+    unequippedCode = equippedList[0].itemCode;
   }
 
-  // 새 아이템 장착
-  db.prepare(`
-    UPDATE user_inventory SET isEquipped = 1
-    WHERE userId = ? AND itemCode = ?
-  `).run(userId, itemCode);
+  // 새 아이템 장착 (inventoryId 기준)
+  db.prepare("UPDATE user_inventory SET isEquipped = 1 WHERE id = ?").run(invItem.id);
 
-  return { success: true, equipped: itemCode, unequipped: unequippedCode };
+  return { success: true, equipped: invItem.itemCode, inventoryId: invItem.id, unequipped: unequippedCode };
 }
 
-function equipItem(userId, itemCode) {
-  const invItem = db.prepare(
-    "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
-  ).get(userId, itemCode);
+function equipItem(userId, itemCode, inventoryId) {
+  const invItem = inventoryId
+    ? db.prepare("SELECT * FROM user_inventory WHERE id = ? AND userId = ?").get(inventoryId, userId)
+    : db.prepare("SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?").get(userId, itemCode);
   if (!invItem) return { success: false, message: "Item not in inventory" };
 
-  const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
+  const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(invItem.itemCode);
 
   if (itemDef.itemType === "Consumable")
     return { success: false, message: "Consumable items cannot be equipped" };
@@ -352,32 +380,26 @@ function equipItem(userId, itemCode) {
     `).run(userId, itemDef.itemType);
   }
 
-  db.prepare(`
-    UPDATE user_inventory SET isEquipped = 1
-    WHERE userId = ? AND itemCode = ?
-  `).run(userId, itemCode);
+  db.prepare("UPDATE user_inventory SET isEquipped = 1 WHERE id = ?").run(invItem.id);
 
-  return { success: true, equipped: itemCode, itemType: itemDef.itemType };
+  return { success: true, equipped: invItem.itemCode, inventoryId: invItem.id, itemType: itemDef.itemType };
 }
 
-function unequipItem(userId, itemCode) {
-  const invItem = db.prepare(
-    "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
-  ).get(userId, itemCode);
+function unequipItem(userId, itemCode, inventoryId) {
+  const invItem = inventoryId
+    ? db.prepare("SELECT * FROM user_inventory WHERE id = ? AND userId = ?").get(inventoryId, userId)
+    : db.prepare("SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?").get(userId, itemCode);
   if (!invItem) return { success: false, message: "Item not in inventory" };
 
-  db.prepare(`
-    UPDATE user_inventory SET isEquipped = 0
-    WHERE userId = ? AND itemCode = ?
-  `).run(userId, itemCode);
+  db.prepare("UPDATE user_inventory SET isEquipped = 0 WHERE id = ?").run(invItem.id);
 
-  return { success: true, unequipped: itemCode };
+  return { success: true, unequipped: invItem.itemCode, inventoryId: invItem.id };
 }
 
 function getInventory(userId) {
   const items = db.prepare(`
     SELECT
-      ui.slotIndex, ui.isEquipped, ui.obtainedAt,
+      ui.id AS inventoryId, ui.slotIndex, ui.isEquipped, ui.obtainedAt,
       id.itemCode, id.name, id.description, id.itemType, id.cosmeticSlot
     FROM user_inventory ui
     JOIN item_definitions id ON ui.itemCode = id.itemCode
@@ -386,7 +408,7 @@ function getInventory(userId) {
   `).all(userId);
 
   for (const item of items) {
-    item.options = getItemOptions(item.itemCode);
+    item.options = getInventoryItemOptions(item.inventoryId);
   }
   return items;
 }
@@ -396,7 +418,7 @@ function getInventoryByType(userId, itemType) {
 
   const items = db.prepare(`
     SELECT
-      ui.slotIndex, ui.isEquipped, ui.obtainedAt,
+      ui.id AS inventoryId, ui.slotIndex, ui.isEquipped, ui.obtainedAt,
       id.itemCode, id.name, id.description, id.itemType, id.cosmeticSlot
     FROM user_inventory ui
     JOIN item_definitions id ON ui.itemCode = id.itemCode
@@ -405,14 +427,14 @@ function getInventoryByType(userId, itemType) {
   `).all(userId, itemType);
 
   for (const item of items) {
-    item.options = getItemOptions(item.itemCode);
+    item.options = getInventoryItemOptions(item.inventoryId);
   }
   return items;
 }
 
 function getEquippedItems(userId) {
   const items = db.prepare(`
-    SELECT ui.slotIndex, id.itemCode, id.name, id.itemType, id.cosmeticSlot
+    SELECT ui.id AS inventoryId, ui.slotIndex, id.itemCode, id.name, id.itemType, id.cosmeticSlot
     FROM user_inventory ui
     JOIN item_definitions id ON ui.itemCode = id.itemCode
     WHERE ui.userId = ? AND ui.isEquipped = 1
@@ -420,11 +442,12 @@ function getEquippedItems(userId) {
   `).all(userId);
 
   for (const item of items) {
-    item.options = getItemOptions(item.itemCode);
+    item.options = getInventoryItemOptions(item.inventoryId);
   }
   return items;
 }
 
+// 전역 카탈로그용 옵션 (아이템 도감 표시용)
 function getItemOptions(itemCode) {
   return db.prepare(`
     SELECT ido.optionCode, ido.value, io.name, io.description, io.valueType
@@ -434,17 +457,27 @@ function getItemOptions(itemCode) {
   `).all(itemCode);
 }
 
+// 인스턴스별 옵션 (유저 인벤토리 아이템용)
+function getInventoryItemOptions(inventoryId) {
+  return db.prepare(`
+    SELECT uio.optionCode, uio.value, io.name, io.description, io.valueType
+    FROM user_item_options uio
+    JOIN item_options io ON uio.optionCode = io.optionCode
+    WHERE uio.inventoryId = ?
+  `).all(inventoryId);
+}
+
 function getUserAllOptions(userId) {
   return db.prepare(`
     SELECT
-      ido.optionCode, io.name, io.valueType, ido.value,
-      id.itemCode, id.name AS itemName
+      uio.optionCode, io.name, io.valueType, uio.value,
+      id.itemCode, id.name AS itemName, ui.id AS inventoryId
     FROM user_inventory ui
-    JOIN item_definition_options ido ON ui.itemCode = ido.itemCode
-    JOIN item_options io ON ido.optionCode = io.optionCode
+    JOIN user_item_options uio ON ui.id = uio.inventoryId
+    JOIN item_options io ON uio.optionCode = io.optionCode
     JOIN item_definitions id ON ui.itemCode = id.itemCode
     WHERE ui.userId = ?
-    ORDER BY ido.optionCode ASC
+    ORDER BY uio.optionCode ASC
   `).all(userId);
 }
 
@@ -566,13 +599,13 @@ const ITEM_OPTIONS = {
   Friend:  { main: null,                     sub: null },  // 별도 처리
 };
 
-// 서브 옵션 등장 확률 (메인 등급 확률과 동일)
-const SUB_OPTION_RATES = {
-  low:  0.45,
-  mid:  0.35,
-  high: 0.15,
-  top:  0.05,
-};
+// 서브 옵션 등급 확률 (low=45%, mid=35%, high=15%, top=5%)
+const SUB_GRADE_RATES = [
+  { grade: "low",  rate: 0.45 },
+  { grade: "mid",  rate: 0.35 },
+  { grade: "high", rate: 0.15 },
+  { grade: "top",  rate: 0.05 },
+];
 
 // 아이템 옵션 결정
 function resolveItemOptions(itemType, grade) {
@@ -583,33 +616,37 @@ function resolveItemOptions(itemType, grade) {
   const options = [];
 
   if (itemType === "Friend") {
-    // 프랜즈 - item_definition_options에 등록된 옵션 그대로 사용
-    // 어드민에서 아이템 등록 시 옵션 직접 연결
     return options; // 빈 배열 반환 (옵션은 item_definition_options에서 관리)
   }
 
   if (itemType === "Theme") {
-    // 가구 - EXP +50 고정 (flat)
     options.push({ optionCode: "CURRENCY_EXP_FLAT", value: 50 });
     return options;
   }
 
-  // 메인 옵션 (확정)
+  // 메인 옵션 (확정 - 아이템 DB grade 기준)
   if (optionDef.main) {
     options.push({ optionCode: optionDef.main, value: multiplier });
   }
 
-  // 서브 옵션 (확률 + 별도 등급 결정)
+  // 서브 옵션 (Hat/Clothes/Bag에 항상 100% 부여, 등급만 독립 롤링)
   if (optionDef.sub) {
-    const subRate = SUB_OPTION_RATES[grade] || 0;
-    if (Math.random() < subRate) {
-      const subGrade      = rollGrade();                  // 서브 옵션 등급 별도 결정
-      const subMultiplier = GRADE_MULTIPLIER[subGrade];   // 서브 등급에 맞는 배율
-      options.push({ optionCode: optionDef.sub, value: subMultiplier, grade: subGrade });
-    }
+    const subGrade      = rollSubGrade();
+    const subMultiplier = GRADE_MULTIPLIER[subGrade];
+    options.push({ optionCode: optionDef.sub, value: subMultiplier, grade: subGrade });
   }
 
   return options;
+}
+
+// 서브 옵션 등급 롤링 (독립 확률)
+function rollSubGrade() {
+  let rand = Math.random();
+  for (const g of SUB_GRADE_RATES) {
+    rand -= g.rate;
+    if (rand <= 0) return g.grade;
+  }
+  return "low";
 }
 
 
@@ -693,7 +730,7 @@ function getEquippedConsumableEffects(userId) {
 
 // 꿈상점 생성 (daily-reset 시 호출)
 function generateDreamShop(userId) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getServerToday();
 
   // 이미 오늘 생성된 꿈상점 있으면 반환
   const existing = db.prepare(
@@ -755,10 +792,9 @@ function generateDreamShop(userId) {
       grade   = "basic";
       options = resolveItemOptions(itemType, grade);
     } else {
-      let minGrade = null;
-      if (effects.shop_grade_high > 0 && costumeCount < effects.shop_grade_high) minGrade = "high";
-      else if (effects.shop_grade_mid > 0 && costumeCount < effects.shop_grade_mid) minGrade = "mid";
-      grade   = rollGrade(minGrade);
+      // 아이템의 실제 DB grade 사용 (메인 옵션 고정)
+      const itemDefInfo = db.prepare("SELECT grade FROM item_definitions WHERE itemCode = ?").get(itemCode);
+      grade = itemDefInfo ? itemDefInfo.grade : "low";
       options = resolveItemOptions(itemType, grade);
       costumeCount++;
     }
@@ -778,7 +814,7 @@ function generateDreamShop(userId) {
 
 // 꿈상점 조회
 function getDreamShop(userId) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getServerToday();
   const shop = db.prepare(
     "SELECT * FROM dream_shop WHERE userId = ? AND date = ?"
   ).get(userId, today);
@@ -790,7 +826,7 @@ function getDreamShop(userId) {
 
 // 꿈상점 구매
 function buyDreamShopItem(userId, itemIndex) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getServerToday();
   const shop = db.prepare(
     "SELECT * FROM dream_shop WHERE userId = ? AND date = ?"
   ).get(userId, today);
@@ -812,15 +848,14 @@ function buyDreamShopItem(userId, itemIndex) {
   const invResult = addItemToInventory(userId, itemCode);
   if (!invResult.success) return { success: false, message: invResult.message };
 
-  //  꿈상점 확정 옵션을 item_definition_options에 적용
-  // Friend/Theme 제외 (이미 등록된 옵션 사용)
-  const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
-  if (itemDef && itemDef.itemType !== "Friend" && itemDef.itemType !== "Theme" && options && options.length > 0) {
+  // 꿈상점 롤링 옵션을 user_item_options에 인스턴스별 저장
+  // addItemToInventory에서 기본 옵션이 복사되었으므로, 꿈상점 옵션으로 덮어쓰기
+  if (options && options.length > 0 && invResult.inventoryId) {
     for (const opt of options) {
       db.prepare(`
-        INSERT OR REPLACE INTO item_definition_options (itemCode, optionCode, value)
+        INSERT OR REPLACE INTO user_item_options (inventoryId, optionCode, value)
         VALUES (?, ?, ?)
-      `).run(itemCode, opt.optionCode, opt.value);
+      `).run(invResult.inventoryId, opt.optionCode, opt.value);
     }
   }
 
@@ -836,7 +871,8 @@ function buyDreamShopItem(userId, itemIndex) {
     itemCode,
     grade,
     options: options || [],
-    slotIndex: invResult.slotIndex
+    slotIndex: invResult.slotIndex,
+    inventoryId: invResult.inventoryId
   };
 }
 
@@ -1088,6 +1124,7 @@ module.exports = {
   getInventoryByType,
   getEquippedItems,
   getItemOptions,
+  getInventoryItemOptions,
   getUserAllOptions,
   getUserOptionValue,
   getUserFlatOptionValue,
