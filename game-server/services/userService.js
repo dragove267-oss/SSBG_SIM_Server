@@ -24,7 +24,7 @@ function getOrCreateUser(userId) {
     ).run(userId);
     user = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
 
-    //  기본 아이템 자동 지급 + 장착 + 기본 옵션 복사
+    // 기본 아이템 자동 지급 + 장착 + 기본 옵션 복사
     const defaultItems = ["100", "200", "300"];
     for (let i = 0; i < defaultItems.length; i++) {
       const itemCode = defaultItems[i];
@@ -308,7 +308,7 @@ function addItemToInventory(userId, itemCode) {
   return { success: true, slotIndex: emptySlot, item: itemDef, inventoryId };
 }
 
-// Consumable 전용 장착 (최대 3개, 초과 시 가장 왼쪽 해제)
+// Consumable 전용 장착 (최대 3개, 동일효과 중복 불가, 초과 시 가장 왼쪽 해제)
 function equipConsumable(userId, itemCode, inventoryId) {
   const invItem = inventoryId
     ? db.prepare("SELECT * FROM user_inventory WHERE id = ? AND userId = ?").get(inventoryId, userId)
@@ -319,17 +319,14 @@ function equipConsumable(userId, itemCode, inventoryId) {
   if (itemDef.itemType !== "Consumable")
     return { success: false, message: "Consumable 아이템만 이 함수로 장착 가능합니다." };
 
-  // 이미 장착 중인지 확인
   if (invItem.isEquipped)
     return { success: false, message: "이미 장착 중인 아이템입니다." };
 
-  // 새 아이템의 효과 타입 조회
   const targetEffect = db.prepare(
     "SELECT effectType FROM consumable_effects WHERE itemCode = ?"
   ).get(invItem.itemCode);
   if (!targetEffect) return { success: false, message: "소모품 특수 효과 정보를 찾을 수 없습니다." };
 
-  // 현재 장착된 Consumable 목록과 효과 조회
   const equippedList = db.prepare(`
     SELECT ui.id, ui.slotIndex, ui.itemCode, ce.effectType
     FROM user_inventory ui
@@ -340,19 +337,15 @@ function equipConsumable(userId, itemCode, inventoryId) {
 
   let unequippedCode = null;
 
-  // 동일 효과를 지닌 장착 소모품 탐색 (동일효과 중복착용 제한 스왑)
   const duplicate = equippedList.find(e => e.effectType === targetEffect.effectType);
-
   if (duplicate) {
     db.prepare("UPDATE user_inventory SET isEquipped = 0 WHERE id = ?").run(duplicate.id);
     unequippedCode = duplicate.itemCode;
   } else if (equippedList.length >= 3) {
-    // 3개 꽉 찬 경우 가장 왼쪽 해제
     db.prepare("UPDATE user_inventory SET isEquipped = 0 WHERE id = ?").run(equippedList[0].id);
     unequippedCode = equippedList[0].itemCode;
   }
 
-  // 새 아이템 장착 (inventoryId 기준)
   db.prepare("UPDATE user_inventory SET isEquipped = 1 WHERE id = ?").run(invItem.id);
 
   return { success: true, equipped: invItem.itemCode, inventoryId: invItem.id, unequipped: unequippedCode };
@@ -369,7 +362,7 @@ function equipItem(userId, itemCode, inventoryId) {
   if (itemDef.itemType === "Consumable")
     return { success: false, message: "Consumable items cannot be equipped" };
 
-  // Theme(가구)은 중복 장착 허용 - 기존 장착 해제 없이 바로 장착
+  // Theme(가구)은 중복 장착 허용
   if (itemDef.itemType !== "Theme") {
     db.prepare(`
       UPDATE user_inventory SET isEquipped = 0
@@ -485,10 +478,6 @@ function getUserAllOptions(userId) {
 // 도감
 // ================================================================
 
-//  item_definitions 전체 기준
-//    user_inventory에 있으면 isUnlocked = 1 (해금)
-//    없으면 isUnlocked = 0 (미해금)
-// collectionType: null = 전체 / 'Hat' / 'Bag' / 'Clothes' / 'Theme' / 'Friend' / 'Consumable' / 'relic'
 function getCollection(userId, collectionType) {
   const query = collectionType
     ? `SELECT
@@ -518,8 +507,6 @@ function getCollection(userId, collectionType) {
     : db.prepare(query).all(userId);
 }
 
-//  해금된 itemCode 목록만 반환
-//    = 유저가 가방에 보유한 아이템
 function getUnlockedItemCodes(userId, collectionType) {
   const query = collectionType
     ? `SELECT id.itemCode
@@ -595,11 +582,11 @@ const ITEM_OPTIONS = {
   Hat:     { main: "CURRENCY_ACADEMIC_RATE", sub: "CURRENCY_EXTRA_RATE" },
   Clothes: { main: "CURRENCY_EXTRA_RATE",    sub: "CURRENCY_IDLE_RATE" },
   Bag:     { main: "CURRENCY_IDLE_RATE",     sub: "CURRENCY_ACADEMIC_RATE" },
-  Theme:   { main: "CURRENCY_EXP_FLAT",      sub: null },  // 가구 - EXP +50 고정
-  Friend:  { main: null,                     sub: null },  // 별도 처리
+  Theme:   { main: "CURRENCY_EXP_FLAT",      sub: null },
+  Friend:  { main: null,                     sub: null },
 };
 
-// 서브 옵션 등급 확률 (low=45%, mid=35%, high=15%, top=5%)
+// 서브 옵션 등급 확률 (독립 롤링)
 const SUB_GRADE_RATES = [
   { grade: "low",  rate: 0.45 },
   { grade: "mid",  rate: 0.35 },
@@ -624,12 +611,12 @@ function resolveItemOptions(itemType, grade) {
     return options;
   }
 
-  // 메인 옵션 (확정 - 아이템 DB grade 기준)
+  // 메인 옵션 (확정)
   if (optionDef.main) {
     options.push({ optionCode: optionDef.main, value: multiplier });
   }
 
-  // 서브 옵션 (Hat/Clothes/Bag에 항상 100% 부여, 등급만 독립 롤링)
+  // 서브 옵션 (항상 100% 부여, 등급만 독립 롤링)
   if (optionDef.sub) {
     const subGrade      = rollSubGrade();
     const subMultiplier = GRADE_MULTIPLIER[subGrade];
@@ -639,7 +626,7 @@ function resolveItemOptions(itemType, grade) {
   return options;
 }
 
-// 서브 옵션 등급 롤링 (독립 확률)
+// 서브 옵션 등급 롤링
 function rollSubGrade() {
   let rand = Math.random();
   for (const g of SUB_GRADE_RATES) {
@@ -649,7 +636,7 @@ function rollSubGrade() {
   return "low";
 }
 
-
+// 등급 확률 테이블
 const GRADE_RATES = [
   { grade: "low",  rate: 0.45 },
   { grade: "mid",  rate: 0.35 },
@@ -671,7 +658,6 @@ function rollGrade(minGrade = null) {
   const gradeOrder = ["low", "mid", "high", "top"];
   const minIdx = minGrade ? gradeOrder.indexOf(minGrade) : 0;
 
-  // 최소 등급 이상만 필터링 후 재확률 계산
   const filtered = GRADE_RATES.filter((_, i) => i >= minIdx);
   const total = filtered.reduce((acc, g) => acc + g.rate, 0);
 
@@ -732,17 +718,14 @@ function getEquippedConsumableEffects(userId) {
 function generateDreamShop(userId) {
   const today = getServerToday();
 
-  // 이미 오늘 생성된 꿈상점 있으면 반환
   const existing = db.prepare(
     "SELECT * FROM dream_shop WHERE userId = ? AND date = ?"
   ).get(userId, today);
   if (existing) return { ...existing, items: JSON.parse(existing.items) };
 
-  // 소모품 효과 계산
   const effects = getEquippedConsumableEffects(userId);
 
   // 등장 아이템 수 결정
-  // 기본 1개 + 소모품 효과
   let baseItemCount = 1;
   const addEffect = effects.shop_add_item;
   if (addEffect === 1) baseItemCount += 1;
@@ -754,7 +737,6 @@ function generateDreamShop(userId) {
   // 구매 가능 수 결정 (기본 1개, 최대 4개)
   const maxBuyCount = Math.min(4, 1 + effects.shop_add_buy);
 
-  // 아이템 생성
   const items = [];
   const usedCodes = new Set();
   let costumeCount = 0;
@@ -762,7 +744,6 @@ function generateDreamShop(userId) {
   for (let i = 0; i < baseItemCount; i++) {
     const itemType = rollItemType();
 
-    // Friend/Theme은 이미 보유 중이면 재시도
     let itemCode = null;
     let grade    = null;
     let options  = [];
@@ -773,7 +754,6 @@ function generateDreamShop(userId) {
       if (!candidateCode) break;
       if (usedCodes.has(candidateCode)) { tries++; continue; }
 
-      // Friend/Theme 중복 보유 체크
       if (itemType === "Friend" || itemType === "Theme") {
         const owned = db.prepare(
           "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
@@ -787,7 +767,6 @@ function generateDreamShop(userId) {
 
     if (!itemCode) continue;
 
-    // 등급 결정 (Friend/Theme은 등급 없음)
     if (itemType === "Friend" || itemType === "Theme") {
       grade   = "basic";
       options = resolveItemOptions(itemType, grade);
@@ -808,6 +787,15 @@ function generateDreamShop(userId) {
     INSERT OR REPLACE INTO dream_shop (userId, date, items, maxBuyCount, usedBuyCount)
     VALUES (?, ?, ?, ?, 0)
   `).run(userId, today, JSON.stringify(items), maxBuyCount);
+
+  // ✅ 꿈상점 생성 후 장착된 소모품 전체 해제 (1회 소모)
+  db.prepare(`
+    UPDATE user_inventory SET isEquipped = 0
+    WHERE userId = ? AND isEquipped = 1
+      AND itemCode IN (
+        SELECT itemCode FROM item_definitions WHERE itemType = 'Consumable'
+      )
+  `).run(userId);
 
   return { userId, date: today, items, maxBuyCount, usedBuyCount: 0 };
 }
@@ -844,12 +832,10 @@ function buyDreamShopItem(userId, itemIndex) {
 
   const { itemCode, grade, options } = items[itemIndex];
 
-  // 인벤토리에 추가
   const invResult = addItemToInventory(userId, itemCode);
   if (!invResult.success) return { success: false, message: invResult.message };
 
   // 꿈상점 롤링 옵션을 user_item_options에 인스턴스별 저장
-  // addItemToInventory에서 기본 옵션이 복사되었으므로, 꿈상점 옵션으로 덮어쓰기
   if (options && options.length > 0 && invResult.inventoryId) {
     for (const opt of options) {
       db.prepare(`
@@ -859,7 +845,6 @@ function buyDreamShopItem(userId, itemIndex) {
     }
   }
 
-  // 구매 처리
   items[itemIndex].bought = true;
   db.prepare(`
     UPDATE dream_shop SET items = ?, usedBuyCount = usedBuyCount + 1
@@ -880,10 +865,7 @@ function buyDreamShopItem(userId, itemIndex) {
 // 제작
 // ================================================================
 
-// 재화 조합으로 레시피 찾기
 function findRecipe(academic, extra, idle) {
-  // 입력된 재화로 매칭되는 레시피 조회
-  // 0인 재화는 null 또는 0으로 저장되어 있으므로 조건 처리
   const recipes = db.prepare(`
     SELECT cd.craftId, cd.itemCode, cd.currencyType1, cd.cost1,
            cd.currencyType2, cd.cost2, cd.currencyType3, cd.cost3,
@@ -892,7 +874,6 @@ function findRecipe(academic, extra, idle) {
     JOIN item_definitions id ON cd.itemCode = id.itemCode
   `).all();
 
-  // 입력 재화 맵
   const input = {
     academicCurrency: academic,
     extraCurrency:    extra,
@@ -900,7 +881,6 @@ function findRecipe(academic, extra, idle) {
   };
 
   for (const recipe of recipes) {
-    // 레시피 재화 맵 생성
     const required = {};
     if (recipe.currencyType1 && recipe.cost1 > 0)
       required[recipe.currencyType1] = (required[recipe.currencyType1] || 0) + recipe.cost1;
@@ -909,8 +889,7 @@ function findRecipe(academic, extra, idle) {
     if (recipe.currencyType3 && recipe.cost3 > 0)
       required[recipe.currencyType3] = (required[recipe.currencyType3] || 0) + recipe.cost3;
 
-    // 입력값과 레시피 재화 완전 일치 확인
-    const inputKeys   = Object.keys(input).filter(k => input[k] > 0);
+    const inputKeys    = Object.keys(input).filter(k => input[k] > 0);
     const requiredKeys = Object.keys(required);
 
     if (inputKeys.length !== requiredKeys.length) continue;
@@ -932,13 +911,11 @@ function craftItem(userId, craftId) {
 
   if (!recipe) return { success: false, message: "존재하지 않는 레시피입니다." };
 
-  //  Consumable 타입만 제작 가능
   if (recipe.itemType !== "Consumable")
     return { success: false, message: "소모성 아이템만 제작 가능합니다." };
 
   const user = getOrCreateUser(userId);
 
-  // 재화 확인 (1~3종류)
   if (user[recipe.currencyType1] < recipe.cost1)
     return { success: false, message: `${recipe.currencyType1} 재화가 부족합니다.`, current: user };
   if (recipe.currencyType2 && recipe.cost2 > 0 && user[recipe.currencyType2] < recipe.cost2)
@@ -946,49 +923,37 @@ function craftItem(userId, craftId) {
   if (recipe.currencyType3 && recipe.cost3 > 0 && user[recipe.currencyType3] < recipe.cost3)
     return { success: false, message: `${recipe.currencyType3} 재화가 부족합니다.`, current: user };
 
-  // 이미 보유 중인지 확인
   const already = db.prepare(
     "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
   ).get(userId, recipe.itemCode);
   if (already) return { success: false, message: "이미 보유한 아이템입니다." };
 
-  // 트랜잭션으로 재화 차감 + 아이템 지급
   const craftTransaction = db.transaction(() => {
-    // 재화1 차감
     db.prepare(`
       UPDATE users SET ${recipe.currencyType1} = ${recipe.currencyType1} - ?,
-        updatedAt = datetime('now')
-      WHERE userId = ?
+        updatedAt = datetime('now') WHERE userId = ?
     `).run(recipe.cost1, userId);
-    db.prepare(`
-      INSERT INTO spend_log (userId, currencyType, amount, reason) VALUES (?, ?, ?, ?)
-    `).run(userId, recipe.currencyType1, recipe.cost1, `craft:${recipe.itemCode}`);
+    db.prepare(`INSERT INTO spend_log (userId, currencyType, amount, reason) VALUES (?, ?, ?, ?)`)
+      .run(userId, recipe.currencyType1, recipe.cost1, `craft:${recipe.itemCode}`);
 
-    // 재화2 차감 (있는 경우)
     if (recipe.currencyType2 && recipe.cost2 > 0) {
       db.prepare(`
         UPDATE users SET ${recipe.currencyType2} = ${recipe.currencyType2} - ?,
-          updatedAt = datetime('now')
-        WHERE userId = ?
+          updatedAt = datetime('now') WHERE userId = ?
       `).run(recipe.cost2, userId);
-      db.prepare(`
-        INSERT INTO spend_log (userId, currencyType, amount, reason) VALUES (?, ?, ?, ?)
-      `).run(userId, recipe.currencyType2, recipe.cost2, `craft:${recipe.itemCode}`);
+      db.prepare(`INSERT INTO spend_log (userId, currencyType, amount, reason) VALUES (?, ?, ?, ?)`)
+        .run(userId, recipe.currencyType2, recipe.cost2, `craft:${recipe.itemCode}`);
     }
 
-    // 재화3 차감 (있는 경우)
     if (recipe.currencyType3 && recipe.cost3 > 0) {
       db.prepare(`
         UPDATE users SET ${recipe.currencyType3} = ${recipe.currencyType3} - ?,
-          updatedAt = datetime('now')
-        WHERE userId = ?
+          updatedAt = datetime('now') WHERE userId = ?
       `).run(recipe.cost3, userId);
-      db.prepare(`
-        INSERT INTO spend_log (userId, currencyType, amount, reason) VALUES (?, ?, ?, ?)
-      `).run(userId, recipe.currencyType3, recipe.cost3, `craft:${recipe.itemCode}`);
+      db.prepare(`INSERT INTO spend_log (userId, currencyType, amount, reason) VALUES (?, ?, ?, ?)`)
+        .run(userId, recipe.currencyType3, recipe.cost3, `craft:${recipe.itemCode}`);
     }
 
-    // 인벤토리 추가
     const usedSlots = db.prepare(
       "SELECT slotIndex FROM user_inventory WHERE userId = ?"
     ).all(userId).map(r => r.slotIndex);
@@ -1025,7 +990,6 @@ function craftItem(userId, craftId) {
 // 상점
 // ================================================================
 
-// 상점 목록 조회 (itemType 필터 가능)
 function getShop(itemType) {
   const query = itemType
     ? `SELECT sd.shopId, sd.currencyType, sd.price,
@@ -1045,7 +1009,6 @@ function getShop(itemType) {
     : db.prepare(query).all();
 }
 
-// 아이템 구매
 function buyItem(userId, shopId) {
   const shopItem = db.prepare(`
     SELECT sd.*, id.name, id.itemType
@@ -1056,44 +1019,33 @@ function buyItem(userId, shopId) {
 
   if (!shopItem) return { success: false, message: "상점에 없는 아이템입니다." };
 
-  //  Consumable 타입만 구매 가능
   if (shopItem.itemType !== "Consumable")
     return { success: false, message: "소모성 아이템만 구매 가능합니다." };
 
   const user = getOrCreateUser(userId);
 
-  // 재화 확인
-  if (user[shopItem.currencyType] < shopItem.price) {
+  if (user[shopItem.currencyType] < shopItem.price)
     return { success: false, message: "재화가 부족합니다.", current: user };
-  }
 
-  // 이미 보유 중인지 확인
   const already = db.prepare(
     "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
   ).get(userId, shopItem.itemCode);
   if (already) return { success: false, message: "이미 보유한 아이템입니다." };
 
-  // 재화 차감
   db.prepare(`
     UPDATE users SET ${shopItem.currencyType} = ${shopItem.currencyType} - ?,
-      updatedAt = datetime('now')
-    WHERE userId = ?
+      updatedAt = datetime('now') WHERE userId = ?
   `).run(shopItem.price, userId);
 
-  // 소모 로그
   db.prepare(`
-    INSERT INTO spend_log (userId, currencyType, amount, reason)
-    VALUES (?, ?, ?, ?)
+    INSERT INTO spend_log (userId, currencyType, amount, reason) VALUES (?, ?, ?, ?)
   `).run(userId, shopItem.currencyType, shopItem.price, `shop:${shopItem.itemCode}`);
 
-  // 인벤토리 추가
   const invResult = addItemToInventory(userId, shopItem.itemCode);
   if (!invResult.success) {
-    // 인벤토리 추가 실패 시 재화 복구
     db.prepare(`
       UPDATE users SET ${shopItem.currencyType} = ${shopItem.currencyType} + ?,
-        updatedAt = datetime('now')
-      WHERE userId = ?
+        updatedAt = datetime('now') WHERE userId = ?
     `).run(shopItem.price, userId);
     return { success: false, message: invResult.message };
   }
