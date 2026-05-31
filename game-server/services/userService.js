@@ -724,11 +724,15 @@ function rollItemType() {
 
 // 해당 타입의 랜덤 아이템 선택 (basic 제외)
 function pickRandomItem(itemType) {
-  const items = db.prepare(`
-    SELECT itemCode FROM item_definitions
-    WHERE itemType = ? AND grade != 'basic'
-    ORDER BY RANDOM() LIMIT 1
-  `).get(itemType);
+  const query = (itemType === 'Theme' || itemType === 'Friend')
+    ? `SELECT itemCode FROM item_definitions
+       WHERE itemType = ?
+       ORDER BY RANDOM() LIMIT 1`
+    : `SELECT itemCode FROM item_definitions
+       WHERE itemType = ? AND grade != 'basic'
+       ORDER BY RANDOM() LIMIT 1`;
+
+  const items = db.prepare(query).get(itemType);
   return items ? items.itemCode : null;
 }
 
