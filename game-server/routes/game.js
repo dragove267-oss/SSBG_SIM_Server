@@ -100,7 +100,14 @@ router.post("/login", async (req, res) => {
         return res.status(401).json({ success: false, message: "등록되지 않은 학번입니다." });
       }
     } catch (verifyErr) {
-      console.warn("[Login] 학교서버 검증 실패 - 스킵:", verifyErr.message);
+      if (verifyErr.response) {
+        // 학교서버가 응답을 반환했으나 2xx가 아닌 경우 (예: 404 등록되지 않은 학번)
+        return res.status(401).json({
+          success: false,
+          message: verifyErr.response.data.message || "등록되지 않은 학번입니다."
+        });
+      }
+      console.warn("[Login] 학교서버 연결 실패 - 스킵:", verifyErr.message);
     }
 
     const user = getOrCreateUser(userId);
