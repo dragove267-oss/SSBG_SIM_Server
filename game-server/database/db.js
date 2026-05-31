@@ -280,7 +280,8 @@ db.prepare(`INSERT OR IGNORE INTO server_config (key, value) VALUES ('time_offse
 // Self-Healing Seeder
 // ================================================================
 try {
-  const seedDone = db.prepare("SELECT COUNT(*) as count FROM item_definitions WHERE itemCode = '001' AND name = '하늘책'").get().count > 0;
+  const seedDone = db.prepare("SELECT COUNT(*) as count FROM item_definitions WHERE itemCode = '001' AND name = '하늘책'").get().count > 0
+    && (db.prepare("SELECT cost2 FROM craft_definitions WHERE craftId = 'CRAFT_001'").get()?.cost2 || 0) > 0;
   if (!seedDone) {
     console.log("[DB] Seeding database...");
 
@@ -408,16 +409,49 @@ try {
       db.prepare("INSERT INTO shop_definitions (shopId, itemCode, currencyType, price) VALUES (?, ?, 'exp', ?)").run(s.shopId, s.itemCode, s.price);
     }
 
-    // 제작 레시피 등록
+    // 제작 레시피 등록 (멀티 재화 조합)
     const craftDefs = [
-      { craftId: "CRAFT_001", itemCode: "006", currency1: "extraCurrency",    cost1: 100 },
-      { craftId: "CRAFT_002", itemCode: "007", currency1: "academicCurrency", cost1: 200 },
-      { craftId: "CRAFT_003", itemCode: "008", currency1: "extraCurrency",    cost1: 300 },
-      { craftId: "CRAFT_004", itemCode: "009", currency1: "academicCurrency", cost1: 400 },
-      { craftId: "CRAFT_005", itemCode: "010", currency1: "extraCurrency",    cost1: 500 },
+      {
+        craftId: "CRAFT_001",
+        itemCode: "006",
+        currency1: "academicCurrency", cost1: 100,
+        currency2: "extraCurrency",    cost2: 100,
+        currency3: "idleCurrency",     cost3: 100
+      },
+      {
+        craftId: "CRAFT_002",
+        itemCode: "007",
+        currency1: "academicCurrency", cost1: 300,
+        currency2: "extraCurrency",    cost2: 200,
+        currency3: "idleCurrency",     cost3: 200
+      },
+      {
+        craftId: "CRAFT_003",
+        itemCode: "008",
+        currency1: "academicCurrency", cost1: 300,
+        currency2: "extraCurrency",    cost2: 300,
+        currency3: "idleCurrency",     cost3: 300
+      },
+      {
+        craftId: "CRAFT_004",
+        itemCode: "009",
+        currency1: "academicCurrency", cost1: 200,
+        currency2: "extraCurrency",    cost2: 300,
+        currency3: "idleCurrency",     cost3: 200
+      },
+      {
+        craftId: "CRAFT_005",
+        itemCode: "010",
+        currency1: "academicCurrency", cost1: 200,
+        currency2: "extraCurrency",    cost2: 200,
+        currency3: "idleCurrency",     cost3: 300
+      }
     ];
     for (const c of craftDefs) {
-      db.prepare("INSERT INTO craft_definitions (craftId, itemCode, currencyType1, cost1, cost2, cost3) VALUES (?, ?, ?, ?, 0, 0)").run(c.craftId, c.itemCode, c.currency1, c.cost1);
+      db.prepare(`
+        INSERT INTO craft_definitions (craftId, itemCode, currencyType1, cost1, currencyType2, cost2, currencyType3, cost3)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(c.craftId, c.itemCode, c.currency1, c.cost1, c.currency2, c.cost2, c.currency3, c.cost3);
     }
 
     console.log("[DB] Seeding complete!");
