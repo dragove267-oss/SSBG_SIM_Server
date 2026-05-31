@@ -189,7 +189,13 @@ router.get("/user/:userId", (req, res) => {
   try {
     const user = getOrCreateUser(req.params.userId);
     const u = userWithStudentId(user);
-    res.json({ success: true, user: u, Data: u });
+    res.json({
+      success: true,
+      user: u,
+      Data: u,
+      resetDoneToday: isResetDoneToday(req.params.userId),
+      secondsUntilReset: getSecondsUntilReset()
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

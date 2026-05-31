@@ -24,6 +24,16 @@ function getOrCreateUser(userId) {
     ).run(userId);
     user = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
 
+    // 최초 생성 시 당일 정산 완료 처리 (할 일 없음)
+    try {
+      const { getServerTime } = require("./timeHelper");
+      db.prepare(
+        "INSERT INTO daily_reset_log (userId, resetAt) VALUES (?, ?)"
+      ).run(userId, getServerTime().toISOString());
+    } catch (e) {
+      console.error("[getOrCreateUser] 최초 생성 유저 daily_reset_log 삽입 실패:", e.message);
+    }
+
     // 기본 아이템 자동 지급 + 장착 + 기본 옵션 복사
     const defaultItems = ["100", "200", "300"];
     for (let i = 0; i < defaultItems.length; i++) {
