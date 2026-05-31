@@ -347,7 +347,13 @@ function equipConsumable(userId, itemCode, inventoryId) {
 
   let unequippedCode = null;
 
-  const duplicate = equippedList.find(e => e.effectType === targetEffect.effectType);
+  const isPenEffect = (eff) => eff === 'shop_grade_mid' || eff === 'shop_grade_high';
+  const duplicate = equippedList.find(e => {
+    if (isPenEffect(targetEffect.effectType)) {
+      return isPenEffect(e.effectType);
+    }
+    return e.effectType === targetEffect.effectType;
+  });
   if (duplicate) {
     db.prepare("UPDATE user_inventory SET isEquipped = 0 WHERE id = ?").run(duplicate.id);
     unequippedCode = duplicate.itemCode;
