@@ -997,6 +997,57 @@ function craftItem(userId, craftId) {
 }
 
 // ================================================================
+// Idle 재화 수령
+// 30초당 50 기본 획득 + Idle 배율 옵션 적용
+// ================================================================
+
+const IDLE_INTERVAL_SEC = 30;   // 획득 주기 (초)
+const IDLE_BASE_AMOUNT  = 50;   // 기본 획득량
+
+function collectIdle(userId) {
+  const user = getOrCreateUser(userId);
+
+  const now     = Date.now();
+  const lastRaw = db.prepare("SELECT lastIdleCollect FROM users WHERE userId = ?").get(userId);
+  const lastMs  = lastRaw?.lastIdleCollect
+    ? new Date(lastRaw.lastIdleCollect).getTime()
+    : now;
+
+  const elapsedSec   = Math.floor((now - lastMs) / 1000);
+  const intervals    = Math.floor(elapsedSec / IDLE_INTERVAL_SEC);
+
+  if (intervals <= 0) {
+    return {
+      success: true,
+      gained: 0,
+      message: "아직 수령할 idle 재화가 없습니다.",
+      current: user
+    };
+  }
+
+  const baseAmount  = intervals * IDLE_BASE_AMOUNT;
+  const finalAmount = applyOptionToAmount(userId, "idleCurrency", baseAmount);
+
+  db.prepare(`
+    UPDATE users
+    SET idleCurrency   = idleCurrency + ?,
+        lastIdleCollect = datetime('now'),
+        updatedAt       = datetime('now')
+    WHERE userId = ?
+  `).run(finalAmount, userId);
+
+  const updated = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
+
+  return {
+    success: true,
+    intervals,
+    baseAmount,
+    finalAmount,
+    current: updated
+  };
+}
+
+// ================================================================
 // 상점
 // ================================================================
 
@@ -1096,6 +1147,7 @@ module.exports = {
   generateDreamShop,
   getDreamShop,
   buyDreamShopItem,
+  collectIdle,
   craftItem,
   findRecipe,
   getShop,
