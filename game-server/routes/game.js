@@ -88,10 +88,10 @@ function userWithStudentId(user) {
 // ================================================================
 
 router.post("/school-webhook", (req, res) => {
-  const { userId, attendanceCount, assignmentCount } = req.body;
+  const { userId, attendanceCount, assignmentCount, lateCount = 0, absentCount = 0 } = req.body;
   if (!userId) return res.status(400).json({ error: "userId required" });
   try {
-    const result = applySchoolReward(userId, attendanceCount, assignmentCount);
+    const result = applySchoolReward(userId, attendanceCount, assignmentCount, lateCount, absentCount);
     res.json({
       success: true,
       user: userWithStudentId(result.user),
@@ -279,6 +279,8 @@ router.post("/daily-reset", async (req, res) => {
 
     let attendanceCount = 0;
     let assignmentCount = 0;
+    let lateCount = 0;
+    let absentCount = 0;
 
     // 학교서버 호출 (실패 시 기존 스냅샷 데이터로 진행)
     try {
@@ -291,6 +293,8 @@ router.post("/daily-reset", async (req, res) => {
       syncAssignmentRecords(userId, assignmentList);
 
       attendanceCount = attendanceList.filter(a => a.status === "출석").length;
+      lateCount       = attendanceList.filter(a => a.status === "지각").length;
+      absentCount     = attendanceList.filter(a => a.status === "결석").length;
       assignmentCount = assignmentList.filter(a => a.status === "제출").length;
     } catch (schoolErr) {
       console.warn(`[DailyReset] 학교서버 호출 실패 - 기존 데이터로 진행: ${schoolErr.message}`);
@@ -299,10 +303,12 @@ router.post("/daily-reset", async (req, res) => {
       if (snapshot) {
         attendanceCount = snapshot.attendanceCount;
         assignmentCount = snapshot.assignmentCount;
+        lateCount       = snapshot.lateCount || 0;
+        absentCount     = snapshot.absentCount || 0;
       }
     }
 
-    const result = applySchoolReward(userId, attendanceCount, assignmentCount);
+    const result = applySchoolReward(userId, attendanceCount, assignmentCount, lateCount, absentCount);
 
     db.prepare("INSERT INTO daily_reset_log (userId, resetAt) VALUES (?, ?)").run(userId, getServerTime().toISOString());
 

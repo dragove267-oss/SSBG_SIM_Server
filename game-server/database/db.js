@@ -44,6 +44,13 @@ db.exec(`
   )
 `);
 
+try {
+  db.exec("ALTER TABLE school_snapshots ADD COLUMN lateCount INTEGER DEFAULT 0");
+} catch (e) {}
+try {
+  db.exec("ALTER TABLE school_snapshots ADD COLUMN absentCount INTEGER DEFAULT 0");
+} catch (e) {}
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS daily_play_log (
     id                       INTEGER PRIMARY KEY AUTOINCREMENT,

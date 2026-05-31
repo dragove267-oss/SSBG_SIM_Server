@@ -127,28 +127,34 @@ function saveAcademicLog(userId, changeType, detail, deltaExtra, deltaExp) {
   `).run(userId, changeType, detail, deltaExtra || 0, deltaExp || 0);
 }
 
-function applySchoolReward(userId, newAttendance, newAssignment) {
+function applySchoolReward(userId, newAttendance, newAssignment, newLate = 0, newAbsent = 0) {
   getOrCreateUser(userId);
 
   const snapshot = db.prepare(
     "SELECT * FROM school_snapshots WHERE userId = ?"
-  ).get(userId) || { attendanceCount: 0, assignmentCount: 0 };
+  ).get(userId) || { attendanceCount: 0, assignmentCount: 0, lateCount: 0, absentCount: 0 };
 
   const deltaAttendance = Math.max(0, newAttendance - snapshot.attendanceCount);
   const deltaAssignment = Math.max(0, newAssignment - snapshot.assignmentCount);
+  const deltaLate       = Math.max(0, newLate - (snapshot.lateCount || 0));
+  const deltaAbsent     = Math.max(0, newAbsent - (snapshot.absentCount || 0));
 
-  const baseExtra = deltaAttendance * REWARD_CONFIG.attendance.extraCurrency;
-  const baseExp   = deltaAttendance * REWARD_CONFIG.attendance.exp
-                  + deltaAssignment * REWARD_CONFIG.assignment.exp;
-
+  // 1. Extra 재화 계산 (출석 100, 지각 50, 결석 0)
+  const baseExtra = deltaAttendance * 100 + deltaLate * 50;
   const finalExtra = applyOptionToAmount(userId, "extraCurrency", baseExtra)
-                   + deltaAttendance * getUserFlatOptionValue(userId, "REWARD_ATTENDANCE_BONUS");
-  const finalExp   = applyOptionToAmount(userId, "exp", baseExp)
-                   + deltaAssignment * getUserFlatOptionValue(userId, "REWARD_ASSIGNMENT_BONUS")
-                   + ((deltaAttendance > 0 || deltaAssignment > 0) ? getUserFlatOptionValue(userId, "CURRENCY_EXP_FLAT") : 0);
+                   + (deltaAttendance + deltaLate) * getUserFlatOptionValue(userId, "REWARD_ATTENDANCE_BONUS");
+
+  // 2. Academic 재화 계산 (과제 제출 건당 100)
+  const finalAcademic = deltaAssignment * 100;
+
+  // 3. EXP 계산 (출석, 지각, 결석, 과제 반영 건당 100)
+  const totalReflections = deltaAttendance + deltaLate + deltaAbsent + deltaAssignment;
+  const baseExp = totalReflections * 100;
+  const finalExp = applyOptionToAmount(userId, "exp", baseExp)
+                 + totalReflections * getUserFlatOptionValue(userId, "CURRENCY_EXP_FLAT");
 
   const delta = {
-    academicCurrency: 0,
+    academicCurrency: finalAcademic,
     extraCurrency:    finalExtra,
     idleCurrency:     0,
     exp:              finalExp,
@@ -165,25 +171,31 @@ function applySchoolReward(userId, newAttendance, newAssignment) {
   `).run(delta.academicCurrency, delta.extraCurrency, delta.idleCurrency, delta.exp, userId);
 
   db.prepare(`
-    INSERT INTO school_snapshots (userId, attendanceCount, assignmentCount, updatedAt)
-    VALUES (?, ?, ?, datetime('now'))
+    INSERT INTO school_snapshots (userId, attendanceCount, assignmentCount, lateCount, absentCount, updatedAt)
+    VALUES (?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(userId) DO UPDATE SET
       attendanceCount = excluded.attendanceCount,
       assignmentCount = excluded.assignmentCount,
+      lateCount       = excluded.lateCount,
+      absentCount     = excluded.absentCount,
       updatedAt       = excluded.updatedAt
-  `).run(userId, newAttendance, newAssignment);
+  `).run(userId, newAttendance, newAssignment, newLate, newAbsent);
 
   if (deltaAttendance > 0) {
-    const detail = baseExtra !== finalExtra
-      ? `출석 ${deltaAttendance}회 → Extra +${finalExtra} (기본 ${baseExtra} x배율) / EXP +${finalExp} 획득!`
-      : `출석 ${deltaAttendance}회 → Extra +${finalExtra} / EXP +${finalExp} 획득!`;
+    const detail = `출석 ${deltaAttendance}회 → Extra +${finalExtra} / EXP +${finalExp} 획득!`;
     saveAcademicLog(userId, "attendance", detail, finalExtra, finalExp);
   }
+  if (deltaLate > 0) {
+    const detail = `지각 ${deltaLate}회 → Extra +${deltaLate * 50} / EXP +${deltaLate * 100} 획득!`;
+    saveAcademicLog(userId, "attendance", detail, deltaLate * 50, deltaLate * 100);
+  }
+  if (deltaAbsent > 0) {
+    const detail = `결석 ${deltaAbsent}회 → EXP +${deltaAbsent * 100} 획득!`;
+    saveAcademicLog(userId, "attendance", detail, 0, deltaAbsent * 100);
+  }
   if (deltaAssignment > 0) {
-    const baseAssignExp  = deltaAssignment * REWARD_CONFIG.assignment.exp;
-    const finalAssignExp = applyOptionToAmount(userId, "exp", baseAssignExp);
-    const detail = `과제 ${deltaAssignment}회 제출 → EXP +${finalAssignExp} 획득!`;
-    saveAcademicLog(userId, "assignment", detail, 0, finalAssignExp);
+    const detail = `과제 ${deltaAssignment}회 제출 → Academic +${finalAcademic} / EXP +${finalExp} 획득!`;
+    saveAcademicLog(userId, "assignment", detail, 0, finalExp);
   }
 
   const updated = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
@@ -531,7 +543,12 @@ function getCollection(userId, collectionType) {
          CASE WHEN ui.itemCode IS NOT NULL THEN 1 ELSE 0 END AS isUnlocked,
          ui.obtainedAt AS unlockedAt
        FROM item_definitions id
-       LEFT JOIN user_inventory ui ON id.itemCode = ui.itemCode AND ui.userId = ?
+       LEFT JOIN (
+         SELECT itemCode, MIN(obtainedAt) AS obtainedAt
+         FROM user_inventory
+         WHERE userId = ?
+         GROUP BY itemCode
+       ) ui ON id.itemCode = ui.itemCode
        WHERE id.itemType = ?
        ORDER BY id.itemCode ASC`
     : `SELECT
@@ -542,7 +559,12 @@ function getCollection(userId, collectionType) {
          CASE WHEN ui.itemCode IS NOT NULL THEN 1 ELSE 0 END AS isUnlocked,
          ui.obtainedAt AS unlockedAt
        FROM item_definitions id
-       LEFT JOIN user_inventory ui ON id.itemCode = ui.itemCode AND ui.userId = ?
+       LEFT JOIN (
+         SELECT itemCode, MIN(obtainedAt) AS obtainedAt
+         FROM user_inventory
+         WHERE userId = ?
+         GROUP BY itemCode
+       ) ui ON id.itemCode = ui.itemCode
        ORDER BY id.itemType ASC, id.itemCode ASC`;
 
   return collectionType
@@ -1038,46 +1060,53 @@ function craftItem(userId, craftId) {
 // 30초당 50 기본 획득 + Idle 배율 옵션 적용
 // ================================================================
 
-const IDLE_INTERVAL_SEC = 30;   // 획득 주기 (초)
-const IDLE_BASE_AMOUNT  = 50;   // 기본 획득량
-
 function collectIdle(userId) {
   const user = getOrCreateUser(userId);
 
-  const now     = Date.now();
+  const { getServerTime } = require("./timeHelper");
+  const now = getServerTime().getTime();
+
   const lastRaw = db.prepare("SELECT lastIdleCollect FROM users WHERE userId = ?").get(userId);
   const lastMs  = lastRaw?.lastIdleCollect
     ? new Date(lastRaw.lastIdleCollect).getTime()
     : now;
 
-  const elapsedSec   = Math.floor((now - lastMs) / 1000);
-  const intervals    = Math.floor(elapsedSec / IDLE_INTERVAL_SEC);
+  // 두 시점의 정각(Hour) 시작 시각 계산
+  const lastHourStart = new Date(lastMs);
+  lastHourStart.setMinutes(0, 0, 0);
 
-  if (intervals <= 0) {
+  const nowHourStart = new Date(now);
+  nowHourStart.setMinutes(0, 0, 0);
+
+  // 정각이 경과한 횟수(시간 차이) 계산
+  const elapsedHours = Math.floor((nowHourStart.getTime() - lastHourStart.getTime()) / (1000 * 60 * 60));
+
+  if (elapsedHours <= 0) {
     return {
       success: true,
       gained: 0,
-      message: "아직 수령할 idle 재화가 없습니다.",
+      message: "아직 정각을 지나지 않아 수령할 idle 재화가 없습니다.",
       current: user
     };
   }
 
-  const baseAmount  = intervals * IDLE_BASE_AMOUNT;
+  // 매시 정각 100씩 지급 (elapsedHours * 100)
+  const baseAmount  = elapsedHours * 100;
   const finalAmount = applyOptionToAmount(userId, "idleCurrency", baseAmount);
 
   db.prepare(`
     UPDATE users
     SET idleCurrency   = idleCurrency + ?,
-        lastIdleCollect = datetime('now'),
+        lastIdleCollect = ?,
         updatedAt       = datetime('now')
     WHERE userId = ?
-  `).run(finalAmount, userId);
+  `).run(finalAmount, new Date(now).toISOString(), userId);
 
   const updated = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
 
   return {
     success: true,
-    intervals,
+    intervals: elapsedHours, // 경과 정각 횟수
     baseAmount,
     finalAmount,
     current: updated
