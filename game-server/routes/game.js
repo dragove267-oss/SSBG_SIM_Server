@@ -30,6 +30,7 @@ const {
   generateDreamShop,
   getDreamShop,
   buyDreamShopItem,
+  collectIdle,
   craftItem,
   findRecipe,
   getShop,
@@ -432,6 +433,23 @@ router.post("/dream-shop/buy", (req, res) => {
     return res.status(400).json({ error: "userId, itemIndex required" });
   try {
     res.json(buyDreamShopItem(userId, itemIndex));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================================================================
+// Idle 재화
+// ================================================================
+
+// 30초당 50 기본 획득 (Idle 배율 옵션 적용)
+router.post("/idle/collect", (req, res) => {
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: "userId required" });
+  try {
+    const result = collectIdle(userId);
+    if (result.current) result.current = userWithStudentId(result.current);
+    res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

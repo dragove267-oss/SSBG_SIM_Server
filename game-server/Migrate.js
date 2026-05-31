@@ -8,6 +8,18 @@ const db = require("./database/db");
 
 console.log("[Migration] 시작...");
 
+
+// ================================================================
+// 0. users 테이블 - lastIdleCollect 컬럼 추가
+// ================================================================
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN lastIdleCollect TEXT DEFAULT (datetime('now'))`);
+  console.log("[Migration] users.lastIdleCollect 컬럼 추가 완료");
+} catch (e) {
+  console.log("[Migration] users.lastIdleCollect 이미 존재 (skip)");
+}
+
+
 // ================================================================
 // 1. item_definitions - grade 컬럼 추가
 // ================================================================
