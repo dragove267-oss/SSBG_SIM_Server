@@ -320,9 +320,11 @@ function addItemToInventory(userId, itemCode) {
 
 // Consumable 전용 장착 (최대 3개, 동일효과 중복 불가, 초과 시 가장 왼쪽 해제)
 function equipConsumable(userId, itemCode, inventoryId) {
+  // inventoryId가 제공되지 않았을 때, 장착되지 않은(isEquipped = 0) 아이템을 우선 조회하여 버그 방지
   const invItem = inventoryId
     ? db.prepare("SELECT * FROM user_inventory WHERE id = ? AND userId = ?").get(inventoryId, userId)
-    : db.prepare("SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?").get(userId, itemCode);
+    : db.prepare("SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ? AND isEquipped = 0 LIMIT 1").get(userId, itemCode)
+      || db.prepare("SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?").get(userId, itemCode);
   if (!invItem) return { success: false, message: "Item not in inventory" };
 
   const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(invItem.itemCode);
@@ -337,6 +339,21 @@ function equipConsumable(userId, itemCode, inventoryId) {
   ).get(invItem.itemCode);
   if (!targetEffect) return { success: false, message: "소모품 특수 효과 정보를 찾을 수 없습니다." };
 
+  // 효과 대분류 그룹화 판별 헬퍼
+  const isPen = (eff) => eff === 'shop_grade_mid' || eff === 'shop_grade_high';
+  const isBook = (eff) => eff === 'shop_add_item';
+  const isGlasses = (eff) => eff === 'shop_add_buy';
+
+  const getEffectGroup = (eff) => {
+    if (isPen(eff)) return 'Pen';
+    if (isBook(eff)) return 'Book';
+    if (isGlasses(eff)) return 'Glasses';
+    return eff;
+  };
+
+  const targetGroup = getEffectGroup(targetEffect.effectType);
+
+  // 1. 현재 장착 중인 모든 소모품을 조회
   const equippedList = db.prepare(`
     SELECT ui.id, ui.slotIndex, ui.itemCode, ce.effectType
     FROM user_inventory ui
@@ -347,21 +364,31 @@ function equipConsumable(userId, itemCode, inventoryId) {
 
   let unequippedCode = null;
 
-  const isPenEffect = (eff) => eff === 'shop_grade_mid' || eff === 'shop_grade_high';
-  const duplicate = equippedList.find(e => {
-    if (isPenEffect(targetEffect.effectType)) {
-      return isPenEffect(e.effectType);
+  // 2. 현재 장착 중인 아이템 중, 새 아이템과 동일한 효과 그룹에 속하는 아이템들을 찾아 해제 처리
+  const duplicates = equippedList.filter(e => getEffectGroup(e.effectType) === targetGroup);
+
+  if (duplicates.length > 0) {
+    for (const dup of duplicates) {
+      db.prepare("UPDATE user_inventory SET isEquipped = 0 WHERE id = ?").run(dup.id);
     }
-    return e.effectType === targetEffect.effectType;
-  });
-  if (duplicate) {
-    db.prepare("UPDATE user_inventory SET isEquipped = 0 WHERE id = ?").run(duplicate.id);
-    unequippedCode = duplicate.itemCode;
-  } else if (equippedList.length >= 3) {
-    db.prepare("UPDATE user_inventory SET isEquipped = 0 WHERE id = ?").run(equippedList[0].id);
-    unequippedCode = equippedList[0].itemCode;
+    unequippedCode = duplicates[0].itemCode;
   }
 
+  // 3. 중복을 해제한 후에도 장착된 총 소모품 개수가 3개 이상인지 확인 (이론상 A 시나리오에서는 발생 불가하나 안전장치)
+  const remainingEquipped = db.prepare(`
+    SELECT ui.id, ui.itemCode
+    FROM user_inventory ui
+    JOIN consumable_effects ce ON ui.itemCode = ce.itemCode
+    WHERE ui.userId = ? AND ui.isEquipped = 1
+    ORDER BY ui.slotIndex ASC
+  `).all(userId);
+
+  if (remainingEquipped.length >= 3) {
+    db.prepare("UPDATE user_inventory SET isEquipped = 0 WHERE id = ?").run(remainingEquipped[0].id);
+    unequippedCode = remainingEquipped[0].itemCode;
+  }
+
+  // 4. 대상 아이템 장착 처리
   db.prepare("UPDATE user_inventory SET isEquipped = 1 WHERE id = ?").run(invItem.id);
 
   return { success: true, equipped: invItem.itemCode, inventoryId: invItem.id, unequipped: unequippedCode };
