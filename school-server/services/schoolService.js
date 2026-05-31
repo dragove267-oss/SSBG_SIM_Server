@@ -28,16 +28,18 @@ function getAssignment(userId) {
 // 출석/과제 카운트 계산
 function calculateReward(attendance, assignment) {
   const attendanceCount = attendance.filter(a => a.status === "출석").length;
+  const lateCount       = attendance.filter(a => a.status === "지각").length;
+  const absentCount     = attendance.filter(a => a.status === "결석").length;
   const assignmentCount = assignment.filter(a => a.status === "제출").length;
-  return { attendanceCount, assignmentCount };
+  return { attendanceCount, lateCount, absentCount, assignmentCount };
 }
 
 // 게임서버로 푸시
-async function pushToGameServer(userId, attendanceCount, assignmentCount) {
+async function pushToGameServer(userId, attendanceCount, assignmentCount, lateCount = 0, absentCount = 0) {
   try {
     const res = await axios.post(
       `${GAME_SERVER}/api/school-webhook`,
-      { userId, attendanceCount, assignmentCount }
+      { userId, attendanceCount, assignmentCount, lateCount, absentCount }
     );
     console.log(`[Webhook] 게임서버 전송 성공:`, res.data);
     return res.data;

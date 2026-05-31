@@ -59,12 +59,12 @@ router.post("/notify-update", async (req, res) => {
   try {
     const attendance = getAttendance(userId);
     const assignment = getAssignment(userId);
-    const { attendanceCount, assignmentCount } = calculateReward(attendance, assignment);
-    const result = await pushToGameServer(userId, attendanceCount, assignmentCount);
+    const { attendanceCount, assignmentCount, lateCount, absentCount } = calculateReward(attendance, assignment);
+    const result = await pushToGameServer(userId, attendanceCount, assignmentCount, lateCount, absentCount);
 
     res.json({
       success: true,
-      sent: { attendanceCount, assignmentCount },
+      sent: { attendanceCount, assignmentCount, lateCount, absentCount },
       gameServerResponse: result
     });
   } catch (err) {
