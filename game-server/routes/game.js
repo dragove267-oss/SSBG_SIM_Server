@@ -56,7 +56,26 @@ function isResetDoneToday(userId) {
     SELECT * FROM daily_reset_log
     WHERE userId = ? AND date(resetAt) = ?
   `).get(userId, today);
-  return !!row;
+  if (row) return true;
+
+  // 최초 로그인/미플레이 유저(역사상 정산 로그가 없는 경우) 대응
+  const hasAnyReset = db.prepare(`
+    SELECT id FROM daily_reset_log WHERE userId = ? LIMIT 1
+  `).get(userId);
+
+  if (!hasAnyReset) {
+    try {
+      db.prepare(`
+        INSERT INTO daily_reset_log (userId, resetAt)
+        VALUES (?, ?)
+      `).run(userId, getServerTime().toISOString());
+      return true;
+    } catch (e) {
+      console.error("[isResetDoneToday] 최초 정산 로그 삽입 실패:", e.message);
+    }
+  }
+
+  return false;
 }
 
 // ✅ userId 값을 studentId로도 포함해서 반환 (블루프린트 호환)
