@@ -835,9 +835,9 @@ function generateDreamShop(userId) {
     VALUES (?, ?, ?, ?, 0)
   `).run(userId, today, JSON.stringify(items), maxBuyCount);
 
-  // ✅ 꿈상점 생성 후 장착된 소모품 전체 해제 (1회 소모)
+  // ✅ 꿈상점 생성 후 장착된 소모품 전체 삭제 (1회 소모)
   db.prepare(`
-    UPDATE user_inventory SET isEquipped = 0
+    DELETE FROM user_inventory
     WHERE userId = ? AND isEquipped = 1
       AND itemCode IN (
         SELECT itemCode FROM item_definitions WHERE itemType = 'Consumable'
