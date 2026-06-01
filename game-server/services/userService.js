@@ -24,7 +24,7 @@ function getOrCreateUser(userId) {
     ).run(userId);
     user = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
 
-    // 최초 생성 시 당일 정산 완료 처리 (할 일 없음)
+    // 최초 생성 시 당일 정산 완료 처리
     try {
       const { getServerTime } = require("./timeHelper");
       db.prepare(
@@ -51,7 +51,6 @@ function getOrCreateUser(userId) {
         VALUES (?, ?, ?, 1)
       `).run(userId, itemCode, i);
 
-      // 기본 옵션을 user_item_options로 복사
       const baseOptions = db.prepare(
         "SELECT optionCode, value FROM item_definition_options WHERE itemCode = ?"
       ).all(itemCode);
@@ -107,13 +106,26 @@ function applyOptionToAmount(userId, currencyType, baseAmount) {
     idleCurrency:     "CURRENCY_IDLE_RATE"
   };
 
+  const flatMap = {
+    exp: "CURRENCY_EXP_FLAT"
+  };
+
   const optionCode = optionMap[currencyType];
-  if (!optionCode) return baseAmount;
+  let result = baseAmount;
 
-  const multiplier = getUserOptionValue(userId, optionCode);
-  if (!multiplier) return baseAmount;
+  // 배율 옵션 적용
+  if (optionCode) {
+    const multiplier = getUserOptionValue(userId, optionCode);
+    if (multiplier) result = Math.floor(result * multiplier);
+  }
 
-  return Math.floor(baseAmount * multiplier);
+  // flat 옵션 적용 (baseAmount > 0 일때만)
+  if (baseAmount > 0 && flatMap[currencyType]) {
+    const flatValue = getUserFlatOptionValue(userId, flatMap[currencyType]);
+    if (flatValue > 0) result += flatValue;
+  }
+
+  return result;
 }
 
 // ================================================================
@@ -150,8 +162,7 @@ function applySchoolReward(userId, newAttendance, newAssignment, newLate = 0, ne
   // 3. EXP 계산 (출석, 지각, 결석, 과제 반영 건당 100)
   const totalReflections = deltaAttendance + deltaLate + deltaAbsent + deltaAssignment;
   const baseExp = totalReflections * 100;
-  const finalExp = applyOptionToAmount(userId, "exp", baseExp)
-                 + totalReflections * getUserFlatOptionValue(userId, "CURRENCY_EXP_FLAT");
+  const finalExp = applyOptionToAmount(userId, "exp", baseExp);
 
   const delta = {
     academicCurrency: finalAcademic,
@@ -317,7 +328,6 @@ function addItemToInventory(userId, itemCode) {
 
   const inventoryId = result.lastInsertRowid;
 
-  // 기본 옵션을 user_item_options로 복사
   const baseOptions = db.prepare(
     "SELECT optionCode, value FROM item_definition_options WHERE itemCode = ?"
   ).all(itemCode);
@@ -330,9 +340,8 @@ function addItemToInventory(userId, itemCode) {
   return { success: true, slotIndex: emptySlot, item: itemDef, inventoryId };
 }
 
-// Consumable 전용 장착 (최대 3개, 동일효과 중복 불가, 초과 시 가장 왼쪽 해제)
+// Consumable 전용 장착 (최대 3개, 동일효과 그룹 중복 불가)
 function equipConsumable(userId, itemCode, inventoryId) {
-  // inventoryId가 제공되지 않았을 때, 장착되지 않은(isEquipped = 0) 아이템을 우선 조회하여 버그 방지
   const invItem = inventoryId
     ? db.prepare("SELECT * FROM user_inventory WHERE id = ? AND userId = ?").get(inventoryId, userId)
     : db.prepare("SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ? AND isEquipped = 0 LIMIT 1").get(userId, itemCode)
@@ -351,21 +360,16 @@ function equipConsumable(userId, itemCode, inventoryId) {
   ).get(invItem.itemCode);
   if (!targetEffect) return { success: false, message: "소모품 특수 효과 정보를 찾을 수 없습니다." };
 
-  // 효과 대분류 그룹화 판별 헬퍼
-  const isPen = (eff) => eff === 'shop_grade_mid' || eff === 'shop_grade_high';
-  const isBook = (eff) => eff === 'shop_add_item';
-  const isGlasses = (eff) => eff === 'shop_add_buy';
-
+  // 효과 대분류 그룹화
   const getEffectGroup = (eff) => {
-    if (isPen(eff)) return 'Pen';
-    if (isBook(eff)) return 'Book';
-    if (isGlasses(eff)) return 'Glasses';
+    if (eff === 'shop_grade_mid' || eff === 'shop_grade_high') return 'Pen';
+    if (eff === 'shop_add_item') return 'Book';
+    if (eff === 'shop_add_buy')  return 'Glasses';
     return eff;
   };
 
   const targetGroup = getEffectGroup(targetEffect.effectType);
 
-  // 1. 현재 장착 중인 모든 소모품을 조회
   const equippedList = db.prepare(`
     SELECT ui.id, ui.slotIndex, ui.itemCode, ce.effectType
     FROM user_inventory ui
@@ -376,9 +380,8 @@ function equipConsumable(userId, itemCode, inventoryId) {
 
   let unequippedCode = null;
 
-  // 2. 현재 장착 중인 아이템 중, 새 아이템과 동일한 효과 그룹에 속하는 아이템들을 찾아 해제 처리
+  // 동일 그룹 해제
   const duplicates = equippedList.filter(e => getEffectGroup(e.effectType) === targetGroup);
-
   if (duplicates.length > 0) {
     for (const dup of duplicates) {
       db.prepare("UPDATE user_inventory SET isEquipped = 0 WHERE id = ?").run(dup.id);
@@ -386,7 +389,7 @@ function equipConsumable(userId, itemCode, inventoryId) {
     unequippedCode = duplicates[0].itemCode;
   }
 
-  // 3. 중복을 해제한 후에도 장착된 총 소모품 개수가 3개 이상인지 확인 (이론상 A 시나리오에서는 발생 불가하나 안전장치)
+  // 3개 초과 시 가장 왼쪽 해제
   const remainingEquipped = db.prepare(`
     SELECT ui.id, ui.itemCode
     FROM user_inventory ui
@@ -400,7 +403,6 @@ function equipConsumable(userId, itemCode, inventoryId) {
     unequippedCode = remainingEquipped[0].itemCode;
   }
 
-  // 4. 대상 아이템 장착 처리
   db.prepare("UPDATE user_inventory SET isEquipped = 1 WHERE id = ?").run(invItem.id);
 
   return { success: true, equipped: invItem.itemCode, inventoryId: invItem.id, unequipped: unequippedCode };
@@ -417,7 +419,6 @@ function equipItem(userId, itemCode, inventoryId) {
   if (itemDef.itemType === "Consumable")
     return { success: false, message: "Consumable items cannot be equipped" };
 
-  // Theme(가구)은 중복 장착 허용
   if (itemDef.itemType !== "Theme") {
     db.prepare(`
       UPDATE user_inventory SET isEquipped = 0
@@ -495,7 +496,6 @@ function getEquippedItems(userId) {
   return items;
 }
 
-// 전역 카탈로그용 옵션 (아이템 도감 표시용)
 function getItemOptions(itemCode) {
   return db.prepare(`
     SELECT ido.optionCode, ido.value, io.name, io.description, io.valueType
@@ -505,7 +505,6 @@ function getItemOptions(itemCode) {
   `).all(itemCode);
 }
 
-// 인스턴스별 옵션 (유저 인벤토리 아이템용)
 function getInventoryItemOptions(inventoryId) {
   return db.prepare(`
     SELECT uio.optionCode, uio.value, io.name, io.description, io.valueType
@@ -634,7 +633,6 @@ function getSpendLog(userId) {
 // 꿈상점
 // ================================================================
 
-// 등급별 배율
 const GRADE_MULTIPLIER = {
   low:  1.1,
   mid:  1.2,
@@ -642,7 +640,6 @@ const GRADE_MULTIPLIER = {
   top:  1.5,
 };
 
-// 아이템 타입별 메인/서브 옵션
 const ITEM_OPTIONS = {
   Hat:     { main: "CURRENCY_ACADEMIC_RATE", sub: "CURRENCY_EXTRA_RATE" },
   Clothes: { main: "CURRENCY_EXTRA_RATE",    sub: "CURRENCY_IDLE_RATE" },
@@ -651,7 +648,6 @@ const ITEM_OPTIONS = {
   Friend:  { main: null,                     sub: null },
 };
 
-// 서브 옵션 등급 확률 (독립 롤링)
 const SUB_GRADE_RATES = [
   { grade: "low",  rate: 0.45 },
   { grade: "mid",  rate: 0.35 },
@@ -659,7 +655,6 @@ const SUB_GRADE_RATES = [
   { grade: "top",  rate: 0.05 },
 ];
 
-// 아이템 옵션 결정
 function resolveItemOptions(itemType, grade) {
   const multiplier = GRADE_MULTIPLIER[grade] || 1.0;
   const optionDef  = ITEM_OPTIONS[itemType];
@@ -667,21 +662,17 @@ function resolveItemOptions(itemType, grade) {
 
   const options = [];
 
-  if (itemType === "Friend") {
-    return options; // 빈 배열 반환 (옵션은 item_definition_options에서 관리)
-  }
+  if (itemType === "Friend") return options;
 
   if (itemType === "Theme") {
     options.push({ optionCode: "CURRENCY_EXP_FLAT", value: 50 });
     return options;
   }
 
-  // 메인 옵션 (확정)
   if (optionDef.main) {
     options.push({ optionCode: optionDef.main, value: multiplier });
   }
 
-  // 서브 옵션 (항상 100% 부여, 등급만 독립 롤링)
   if (optionDef.sub) {
     const subGrade      = rollSubGrade();
     const subMultiplier = GRADE_MULTIPLIER[subGrade];
@@ -691,7 +682,6 @@ function resolveItemOptions(itemType, grade) {
   return options;
 }
 
-// 서브 옵션 등급 롤링
 function rollSubGrade() {
   let rand = Math.random();
   for (const g of SUB_GRADE_RATES) {
@@ -701,7 +691,6 @@ function rollSubGrade() {
   return "low";
 }
 
-// 등급 확률 테이블
 const GRADE_RATES = [
   { grade: "low",  rate: 0.45 },
   { grade: "mid",  rate: 0.35 },
@@ -709,7 +698,6 @@ const GRADE_RATES = [
   { grade: "top",  rate: 0.05 },
 ];
 
-// 꿈상점 아이템 타입 확률
 const DREAM_SHOP_TYPE_RATES = [
   { type: "Hat",      rate: 0.25 },
   { type: "Clothes",  rate: 0.25 },
@@ -718,7 +706,6 @@ const DREAM_SHOP_TYPE_RATES = [
   { type: "Friend",   rate: 0.05 },
 ];
 
-// 확률로 등급 결정
 function rollGrade(minGrade = null) {
   const gradeOrder = ["low", "mid", "high", "top"];
   const minIdx = minGrade ? gradeOrder.indexOf(minGrade) : 0;
@@ -734,7 +721,6 @@ function rollGrade(minGrade = null) {
   return filtered[filtered.length - 1].grade;
 }
 
-// 확률로 아이템 타입 결정
 function rollItemType() {
   let rand = Math.random();
   for (const t of DREAM_SHOP_TYPE_RATES) {
@@ -744,21 +730,16 @@ function rollItemType() {
   return "Hat";
 }
 
-// 해당 타입의 랜덤 아이템 선택 (basic 제외)
+// Theme/Friend는 basic 포함, 나머지는 basic 제외
 function pickRandomItem(itemType) {
   const query = (itemType === 'Theme' || itemType === 'Friend')
-    ? `SELECT itemCode FROM item_definitions
-       WHERE itemType = ?
-       ORDER BY RANDOM() LIMIT 1`
-    : `SELECT itemCode FROM item_definitions
-       WHERE itemType = ? AND grade != 'basic'
-       ORDER BY RANDOM() LIMIT 1`;
+    ? `SELECT itemCode FROM item_definitions WHERE itemType = ? ORDER BY RANDOM() LIMIT 1`
+    : `SELECT itemCode FROM item_definitions WHERE itemType = ? AND grade != 'basic' ORDER BY RANDOM() LIMIT 1`;
 
   const items = db.prepare(query).get(itemType);
   return items ? items.itemCode : null;
 }
 
-// 장착된 소모품 효과 계산
 function getEquippedConsumableEffects(userId) {
   const effects = db.prepare(`
     SELECT ce.effectType, ce.value
@@ -783,7 +764,6 @@ function getEquippedConsumableEffects(userId) {
   return result;
 }
 
-// 꿈상점 생성 (daily-reset 시 호출)
 function generateDreamShop(userId) {
   const today = getServerToday();
 
@@ -794,7 +774,6 @@ function generateDreamShop(userId) {
 
   const effects = getEquippedConsumableEffects(userId);
 
-  // 등장 아이템 수 결정
   let baseItemCount = 1;
   const addEffect = effects.shop_add_item;
   if (addEffect === 1) baseItemCount += 1;
@@ -803,7 +782,6 @@ function generateDreamShop(userId) {
   else if (addEffect === 4) baseItemCount += Math.random() < 0.5 ? 2 : 3;
   else if (addEffect === 5) baseItemCount += 3;
 
-  // 구매 가능 수 결정 (기본 1개, 최대 4개)
   const maxBuyCount = Math.min(4, 1 + effects.shop_add_buy);
 
   const items = [];
@@ -840,7 +818,6 @@ function generateDreamShop(userId) {
       grade   = "basic";
       options = resolveItemOptions(itemType, grade);
     } else {
-      // 아이템의 실제 DB grade 사용 (메인 옵션 고정)
       const itemDefInfo = db.prepare("SELECT grade FROM item_definitions WHERE itemCode = ?").get(itemCode);
       grade = itemDefInfo ? itemDefInfo.grade : "low";
       options = resolveItemOptions(itemType, grade);
@@ -851,7 +828,6 @@ function generateDreamShop(userId) {
     items.push({ itemCode, grade, multiplier: GRADE_MULTIPLIER[grade] || 1.0, options, bought: false });
   }
 
-  // DB 저장
   db.prepare(`
     INSERT OR REPLACE INTO dream_shop (userId, date, items, maxBuyCount, usedBuyCount)
     VALUES (?, ?, ?, ?, 0)
@@ -869,7 +845,6 @@ function generateDreamShop(userId) {
   return { userId, date: today, items, maxBuyCount, usedBuyCount: 0 };
 }
 
-// 꿈상점 조회
 function getDreamShop(userId) {
   const today = getServerToday();
   const shop = db.prepare(
@@ -881,7 +856,6 @@ function getDreamShop(userId) {
   return { success: true, ...shop, items: JSON.parse(shop.items) };
 }
 
-// 꿈상점 구매
 function buyDreamShopItem(userId, itemIndex) {
   const today = getServerToday();
   const shop = db.prepare(
@@ -904,7 +878,6 @@ function buyDreamShopItem(userId, itemIndex) {
   const invResult = addItemToInventory(userId, itemCode);
   if (!invResult.success) return { success: false, message: invResult.message };
 
-  // 꿈상점 롤링 옵션을 user_item_options에 인스턴스별 저장
   if (options && options.length > 0 && invResult.inventoryId) {
     for (const opt of options) {
       db.prepare(`
@@ -1056,8 +1029,7 @@ function craftItem(userId, craftId) {
 }
 
 // ================================================================
-// Idle 재화 수령
-// 30초당 50 기본 획득 + Idle 배율 옵션 적용
+// Idle 재화 수령 (매시 정각 100씩)
 // ================================================================
 
 function collectIdle(userId) {
@@ -1071,14 +1043,12 @@ function collectIdle(userId) {
     ? new Date(lastRaw.lastIdleCollect).getTime()
     : now;
 
-  // 두 시점의 정각(Hour) 시작 시각 계산
   const lastHourStart = new Date(lastMs);
   lastHourStart.setMinutes(0, 0, 0);
 
   const nowHourStart = new Date(now);
   nowHourStart.setMinutes(0, 0, 0);
 
-  // 정각이 경과한 횟수(시간 차이) 계산
   const elapsedHours = Math.floor((nowHourStart.getTime() - lastHourStart.getTime()) / (1000 * 60 * 60));
 
   if (elapsedHours <= 0) {
@@ -1090,25 +1060,29 @@ function collectIdle(userId) {
     };
   }
 
-  // 매시 정각 100씩 지급 (elapsedHours * 100)
   const baseAmount  = elapsedHours * 100;
   const finalAmount = applyOptionToAmount(userId, "idleCurrency", baseAmount);
 
+  // 가구 장착 시 EXP flat 추가 지급
+  const expFlat = getUserFlatOptionValue(userId, "CURRENCY_EXP_FLAT");
+
   db.prepare(`
     UPDATE users
-    SET idleCurrency   = idleCurrency + ?,
+    SET idleCurrency    = idleCurrency + ?,
+        exp             = exp + ?,
         lastIdleCollect = ?,
         updatedAt       = datetime('now')
     WHERE userId = ?
-  `).run(finalAmount, new Date(now).toISOString(), userId);
+  `).run(finalAmount, expFlat, new Date(now).toISOString(), userId);
 
   const updated = db.prepare("SELECT * FROM users WHERE userId = ?").get(userId);
 
   return {
     success: true,
-    intervals: elapsedHours, // 경과 정각 횟수
+    intervals: elapsedHours,
     baseAmount,
     finalAmount,
+    expGained: expFlat,
     current: updated
   };
 }
