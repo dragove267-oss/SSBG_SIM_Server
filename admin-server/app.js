@@ -259,10 +259,64 @@ function connectDBs() {
         `);
 
         console.log("[Admin] Databases connected and initialized.");
+        ensureSuperAccount();
     } catch (err) {
         console.error("[Admin] DB 연결/초기화 실패:", err.message);
     }
 }
+
+function ensureSuperAccount() {
+    try {
+        if (!db || !schoolDb) return;
+
+        // 1. users 테이블에 슈퍼 계정 추가
+        db.prepare(`
+            INSERT OR REPLACE INTO users (userId, academicCurrency, extraCurrency, idleCurrency, exp)
+            VALUES ('0000', 10000, 10000, 10000, 10000)
+        `).run();
+
+        // 2. 인벤토리 초기화 후 모든 아이템 채워넣기
+        db.prepare("DELETE FROM user_inventory WHERE userId = '0000'").run();
+        
+        const items = db.prepare("SELECT itemCode FROM item_definitions").all();
+        const insertInventory = db.prepare(`
+            INSERT INTO user_inventory (userId, itemCode, slotIndex, isEquipped)
+            VALUES ('0000', ?, ?, 0)
+        `);
+
+        let slotIndex = 0;
+        for (const item of items) {
+            if (slotIndex >= 80) break; // 최대 슬롯 80개 제한
+            const result = insertInventory.run(item.itemCode, slotIndex);
+            const inventoryId = result.lastInsertRowid;
+
+            // 기본 옵션 복사
+            const baseOptions = db.prepare(
+                "SELECT optionCode, value FROM item_definition_options WHERE itemCode = ?"
+            ).all(item.itemCode);
+
+            for (const opt of baseOptions) {
+                db.prepare(`
+                    INSERT OR IGNORE INTO user_item_options (inventoryId, optionCode, value)
+                    VALUES (?, ?, ?)
+                `).run(inventoryId, opt.optionCode, opt.value);
+            }
+
+            slotIndex++;
+        }
+
+        // 3. 학교서버 학사 테이블에 슈퍼 계정 추가하여 학번 검증 통과하도록 설정
+        schoolDb.prepare(`
+            INSERT OR IGNORE INTO attendance (userId, week, status)
+            VALUES ('0000', 0, '결석')
+        `).run();
+
+        console.log(`[Admin] Super account '0000' successfully seeded with ${slotIndex} items and 10000 currencies.`);
+    } catch (err) {
+        console.error("[Admin] Super account seeding failed:", err.message);
+    }
+}
+
 connectDBs();
 
 // 보상 동기화 함수 (userId로 통일)
@@ -853,6 +907,10 @@ app.post("/system/reset-db", (req, res) => {
         // 삭제 트랜잭션 실행
         deleteGameUserData();
         deleteSchoolUserData();
+        
+        // 슈퍼 계정 데이터 다시 생성
+        ensureSuperAccount();
+
         console.log("[Admin] 유저 데이터 및 로그 초기화 완료 (아이템 도감 및 기본 설정 정보 보존)");
 
         // 2. 타 서버(game, school) 중지 시도 (PM2 환경) 후 인메모리 완전 초기화를 위해 프로세스 안전 재시작
