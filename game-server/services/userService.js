@@ -784,59 +784,69 @@ function generateDreamShop(userId) {
 
   const maxBuyCount = Math.min(4, 1 + effects.shop_add_buy);
 
-  const items = [];
-  const usedCodes = new Set();
-  let costumeCount = 0;
+  // 꿈상점 생성 (등급 조건 만족할 때까지 전체 리롤)
+  const gradeOrder = ["low", "mid", "high", "top"];
+  let items = [];
+  let shopTries = 0;
 
-  for (let i = 0; i < baseItemCount; i++) {
-    const itemType = rollItemType();
+  while (shopTries < 20) {
+    items = [];
+    const usedCodes = new Set();
+    let costumeCount = 0;
 
-    let itemCode = null;
-    let grade    = null;
-    let options  = [];
-    let tries    = 0;
+    for (let i = 0; i < baseItemCount; i++) {
+      const itemType = rollItemType();
 
-    while (tries < 10) {
-      const candidateCode = pickRandomItem(itemType);
-      if (!candidateCode) break;
-      if (usedCodes.has(candidateCode)) { tries++; continue; }
+      let itemCode = null;
+      let grade    = null;
+      let options  = [];
+      let tries    = 0;
+
+      while (tries < 10) {
+        const candidateCode = pickRandomItem(itemType);
+        if (!candidateCode) break;
+        if (usedCodes.has(candidateCode)) { tries++; continue; }
+
+        if (itemType === "Friend" || itemType === "Theme") {
+          const owned = db.prepare(
+            "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
+          ).get(userId, candidateCode);
+          if (owned) { tries++; continue; }
+        }
+
+        itemCode = candidateCode;
+        break;
+      }
+
+      if (!itemCode) continue;
 
       if (itemType === "Friend" || itemType === "Theme") {
-        const owned = db.prepare(
-          "SELECT * FROM user_inventory WHERE userId = ? AND itemCode = ?"
-        ).get(userId, candidateCode);
-        if (owned) { tries++; continue; }
+        grade   = "basic";
+        options = resolveItemOptions(itemType, grade);
+      } else {
+        grade   = rollGrade(null);
+        options = resolveItemOptions(itemType, grade);
+        costumeCount++;
       }
 
-      itemCode = candidateCode;
-      break;
+      usedCodes.add(itemCode);
+      items.push({ itemCode, grade, multiplier: GRADE_MULTIPLIER[grade] || 1.0, options, bought: false });
     }
 
-    if (!itemCode) continue;
+    // 등급 조건 검사
+    const costumes = items.filter(i => !["Friend", "Theme"].includes(
+      db.prepare("SELECT itemType FROM item_definitions WHERE itemCode = ?").get(i.itemCode)?.itemType
+    ));
 
-    if (itemType === "Friend" || itemType === "Theme") {
-      grade   = "basic";
-      options = resolveItemOptions(itemType, grade);
-    } else {
-      // 코스튬 등급: shop_grade_mid/high 효과를 costumeCount 순서에 따라 적용
-      let minGrade = null;
+    const highCount = costumes.filter(i => gradeOrder.indexOf(i.grade) >= gradeOrder.indexOf("high")).length;
+    const midCount  = costumes.filter(i => gradeOrder.indexOf(i.grade) >= gradeOrder.indexOf("mid")).length;
 
-      // shop_grade_high: 첫 번째 코스튬에 최소 상급 보장
-      if (effects.shop_grade_high >= 1 && costumeCount === 0) {
-        minGrade = "high";
-      }
-      // shop_grade_mid: high 적용 후 남은 슬롯에 최소 중급 보장
-      else if (effects.shop_grade_mid >= 1 && costumeCount < effects.shop_grade_mid) {
-        minGrade = "mid";
-      }
+    const highOk = effects.shop_grade_high <= 0 || highCount >= effects.shop_grade_high;
+    const midOk  = effects.shop_grade_mid  <= 0 || midCount  >= effects.shop_grade_mid;
 
-      grade   = rollGrade(minGrade);
-      options = resolveItemOptions(itemType, grade);
-      costumeCount++;
-    }
+    if (highOk && midOk) break;
 
-    usedCodes.add(itemCode);
-    items.push({ itemCode, grade, multiplier: GRADE_MULTIPLIER[grade] || 1.0, options, bought: false });
+    shopTries++;
   }
 
   db.prepare(`
