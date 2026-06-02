@@ -43,25 +43,16 @@ app.post("/api/admin/apply-reward", async (req, res) => {
     syncAttendanceRecords(userId, attendanceList);
     syncAssignmentRecords(userId, assignmentList);
 
-    // 3. 받아온 리스트에서 직접 유효한 개수 파악
-    const currentAttendance = attendanceList.filter(a => a.status === "출석").length;
-    const currentLate       = attendanceList.filter(a => a.status === "지각").length;
-    const currentAbsent     = attendanceList.filter(a => a.status === "결석").length;
+    // 3. 받아온 리스트에서 직접 유효한 개수 파악 (등록용 더미 주차 week 0은 제외)
+    const currentAttendance = attendanceList.filter(a => a.status === "출석" && a.week > 0).length;
+    const currentLate       = attendanceList.filter(a => a.status === "지각" && a.week > 0).length;
+    const currentAbsent     = attendanceList.filter(a => a.status === "결석" && a.week > 0).length;
     const currentAssignment = assignmentList.filter(a => a.status === "제출").length;
 
     // 4. 스냅샷 초기화 (없으면 생성)
     db.prepare(
       "INSERT OR IGNORE INTO school_snapshots (userId, attendanceCount, assignmentCount, lateCount, absentCount) VALUES (?, 0, 0, 0, 0)"
     ).run(userId);
-
-    // 5. 해당 타입 스냅샷을 현재보다 1 작게 강제 조정 (보상 1회 트리거 보장)
-    if (type === "attendance") {
-      db.prepare("UPDATE school_snapshots SET attendanceCount = ? WHERE userId = ?")
-        .run(Math.max(0, currentAttendance - 1), userId);
-    } else if (type === "assignment") {
-      db.prepare("UPDATE school_snapshots SET assignmentCount = ? WHERE userId = ?")
-        .run(Math.max(0, currentAssignment - 1), userId);
-    }
 
     // 6. 보상 로직 호출
     const result = applySchoolReward(userId, currentAttendance, currentAssignment, currentLate, currentAbsent);
@@ -97,9 +88,9 @@ cron.schedule("0 6 * * *", async () => {
         const attendanceRes = await axios.get(`http://localhost:4000/attendance?userId=${userId}`);
         const assignmentRes = await axios.get(`http://localhost:4000/assignment?userId=${userId}`);
 
-        const attendanceCount = attendanceRes.data.attendance.filter(a => a.status === "출석").length;
-        const lateCount       = attendanceRes.data.attendance.filter(a => a.status === "지각").length;
-        const absentCount     = attendanceRes.data.attendance.filter(a => a.status === "결석").length;
+        const attendanceCount = attendanceRes.data.attendance.filter(a => a.status === "출석" && a.week > 0).length;
+        const lateCount       = attendanceRes.data.attendance.filter(a => a.status === "지각" && a.week > 0).length;
+        const absentCount     = attendanceRes.data.attendance.filter(a => a.status === "결석" && a.week > 0).length;
         const assignmentCount = assignmentRes.data.assignment.filter(a => a.status === "제출").length;
 
         applySchoolReward(userId, attendanceCount, assignmentCount, lateCount, absentCount);

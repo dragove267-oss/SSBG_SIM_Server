@@ -292,9 +292,9 @@ router.post("/daily-reset", async (req, res) => {
       syncAttendanceRecords(userId, attendanceList);
       syncAssignmentRecords(userId, assignmentList);
 
-      attendanceCount = attendanceList.filter(a => a.status === "출석").length;
-      lateCount       = attendanceList.filter(a => a.status === "지각").length;
-      absentCount     = attendanceList.filter(a => a.status === "결석").length;
+      attendanceCount = attendanceList.filter(a => a.status === "출석" && a.week > 0).length;
+      lateCount       = attendanceList.filter(a => a.status === "지각" && a.week > 0).length;
+      absentCount     = attendanceList.filter(a => a.status === "결석" && a.week > 0).length;
       assignmentCount = assignmentList.filter(a => a.status === "제출").length;
     } catch (schoolErr) {
       console.warn(`[DailyReset] 학교서버 호출 실패 - 기존 데이터로 진행: ${schoolErr.message}`);

@@ -27,9 +27,9 @@ function getAssignment(userId) {
 
 // 출석/과제 카운트 계산
 function calculateReward(attendance, assignment) {
-  const attendanceCount = attendance.filter(a => a.status === "출석").length;
-  const lateCount       = attendance.filter(a => a.status === "지각").length;
-  const absentCount     = attendance.filter(a => a.status === "결석").length;
+  const attendanceCount = attendance.filter(a => a.status === "출석" && a.week > 0).length;
+  const lateCount       = attendance.filter(a => a.status === "지각" && a.week > 0).length;
+  const absentCount     = attendance.filter(a => a.status === "결석" && a.week > 0).length;
   const assignmentCount = assignment.filter(a => a.status === "제출").length;
   return { attendanceCount, lateCount, absentCount, assignmentCount };
 }
