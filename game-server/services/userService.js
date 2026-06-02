@@ -818,8 +818,19 @@ function generateDreamShop(userId) {
       grade   = "basic";
       options = resolveItemOptions(itemType, grade);
     } else {
-      const itemDefInfo = db.prepare("SELECT grade FROM item_definitions WHERE itemCode = ?").get(itemCode);
-      grade = itemDefInfo ? itemDefInfo.grade : "low";
+      // 코스튬 등급: shop_grade_mid/high 효과를 costumeCount 순서에 따라 적용
+      let minGrade = null;
+
+      // shop_grade_high: 첫 번째 코스튬에 최소 상급 보장
+      if (effects.shop_grade_high >= 1 && costumeCount === 0) {
+        minGrade = "high";
+      }
+      // shop_grade_mid: high 적용 후 남은 슬롯에 최소 중급 보장
+      else if (effects.shop_grade_mid >= 1 && costumeCount < effects.shop_grade_mid) {
+        minGrade = "mid";
+      }
+
+      grade   = rollGrade(minGrade);
       options = resolveItemOptions(itemType, grade);
       costumeCount++;
     }
