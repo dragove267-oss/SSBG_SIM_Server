@@ -287,7 +287,7 @@ db.prepare(`INSERT OR IGNORE INTO server_config (key, value) VALUES ('time_offse
 // Self-Healing Seeder
 // ================================================================
 try {
-  const seedDone = db.prepare("SELECT COUNT(*) as count FROM item_definitions WHERE itemCode = '001' AND name = '하늘책'").get().count > 0
+  const seedDone = db.prepare("SELECT COUNT(*) as count FROM item_definitions WHERE itemCode = '001' AND name = '공책'").get().count > 0
     && (db.prepare("SELECT cost2 FROM craft_definitions WHERE craftId = 'CRAFT_001'").get()?.cost2 || 0) > 0;
   if (!seedDone) {
     console.log("[DB] Seeding database...");
@@ -320,16 +320,16 @@ try {
 
     // 소모품 (0xx)
     const consumables = [
-      { itemCode: "001", name: "하늘책",   desc: "꿈상점 등장 아이템 +1",          effect: "shop_add_item",   val: 1 },
-      { itemCode: "002", name: "파란책",   desc: "꿈상점 등장 아이템 +1 or +2",    effect: "shop_add_item",   val: 2 },
-      { itemCode: "003", name: "은색책",   desc: "꿈상점 등장 아이템 +2",          effect: "shop_add_item",   val: 3 },
-      { itemCode: "004", name: "금색책",   desc: "꿈상점 등장 아이템 +2 or +3",    effect: "shop_add_item",   val: 4 },
-      { itemCode: "005", name: "보라책",   desc: "꿈상점 등장 아이템 +3",          effect: "shop_add_item",   val: 5 },
-      { itemCode: "006", name: "안경",     desc: "꿈상점 구매 횟수 +1",            effect: "shop_add_buy",    val: 1 },
-      { itemCode: "007", name: "오렌지펜", desc: "꿈상점 아이템 1가지 최소 중급",  effect: "shop_grade_mid",  val: 1 },
-      { itemCode: "008", name: "빛안경",   desc: "꿈상점 구매 횟수 +2",            effect: "shop_add_buy",    val: 2 },
-      { itemCode: "009", name: "은펜",     desc: "꿈상점 아이템 2가지 최소 중급",  effect: "shop_grade_mid",  val: 2 },
-      { itemCode: "010", name: "금펜",     desc: "꿈상점 아이템 1가지 최소 상급",  effect: "shop_grade_high", val: 1 },
+      { itemCode: "001", name: "공책",       desc: "꿈상점 등장 아이템 +1",          effect: "shop_add_item",   val: 1 },
+      { itemCode: "002", name: "교과서",     desc: "꿈상점 등장 아이템 +1 or +2",    effect: "shop_add_item",   val: 2 },
+      { itemCode: "003", name: "은색 책",    desc: "꿈상점 등장 아이템 +2",          effect: "shop_add_item",   val: 3 },
+      { itemCode: "004", name: "금색 책",    desc: "꿈상점 등장 아이템 +2 or +3",    effect: "shop_add_item",   val: 4 },
+      { itemCode: "005", name: "백과사전",   desc: "꿈상점 등장 아이템 +3",          effect: "shop_add_item",   val: 5 },
+      { itemCode: "006", name: "안경",       desc: "꿈상점 구매 횟수 +1",            effect: "shop_add_buy",    val: 1 },
+      { itemCode: "007", name: "나무 연필",   desc: "꿈상점 아이템 1가지 최소 중급",  effect: "shop_grade_mid",  val: 1 },
+      { itemCode: "008", name: "선글라스",   desc: "꿈상점 구매 횟수 +2",            effect: "shop_add_buy",    val: 2 },
+      { itemCode: "009", name: "은색 연필",   desc: "꿈상점 아이템 2가지 최소 중급",  effect: "shop_grade_mid",  val: 2 },
+      { itemCode: "010", name: "금색 연필",   desc: "꿈상점 아이템 1가지 최소 상급",  effect: "shop_grade_high", val: 1 },
     ];
     for (const c of consumables) {
       insertItem.run(c.itemCode, c.name, c.desc, "Consumable", "basic", null);
