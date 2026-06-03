@@ -12,8 +12,8 @@ const updates = [
   { itemCode: "004", name: "금색 책" },
   { itemCode: "005", name: "백과사전" },
   { itemCode: "006", name: "안경" },
-  { itemCode: "007", name: "나무 연필" },
-  { itemCode: "008", name: "선글라스" },
+  { itemCode: "007", name: "선글라스" },
+  { itemCode: "008", name: "나무 연필" },
   { itemCode: "009", name: "은색 연필" },
   { itemCode: "010", name: "금색 연필" }
 ];

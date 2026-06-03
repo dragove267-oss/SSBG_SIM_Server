@@ -91,8 +91,8 @@ const consumables = [
   { itemCode: "005", name: "아이템 +3 (최)",      effectType: "shop_add_item",   value: 5 },
   // 조합 소모품
   { itemCode: "006", name: "구매 +1",             effectType: "shop_add_buy",    value: 1 },
-  { itemCode: "007", name: "중급 확정 1종",        effectType: "shop_grade_mid",  value: 1 },
-  { itemCode: "008", name: "구매 +2",             effectType: "shop_add_buy",    value: 2 },
+  { itemCode: "007", name: "구매 +2",             effectType: "shop_add_buy",    value: 2 },
+  { itemCode: "008", name: "중급 확정 1종",        effectType: "shop_grade_mid",  value: 1 },
   { itemCode: "009", name: "중급 확정 2종",        effectType: "shop_grade_mid",  value: 2 },
   { itemCode: "010", name: "상급 확정 1종",        effectType: "shop_grade_high", value: 1 },
 ];
@@ -179,8 +179,8 @@ db.exec(`
 
 const craftItems = [
   { craftId: "CRAFT_001", itemCode: "006", currencyType1: "extraCurrency",    cost1: 100 },
-  { craftId: "CRAFT_002", itemCode: "007", currencyType1: "academicCurrency", cost1: 200 },
-  { craftId: "CRAFT_003", itemCode: "008", currencyType1: "extraCurrency",    cost1: 300 },
+  { craftId: "CRAFT_003", itemCode: "007", currencyType1: "extraCurrency",    cost1: 300 },
+  { craftId: "CRAFT_002", itemCode: "008", currencyType1: "academicCurrency", cost1: 200 },
   { craftId: "CRAFT_004", itemCode: "009", currencyType1: "academicCurrency", cost1: 400 },
   { craftId: "CRAFT_005", itemCode: "010", currencyType1: "extraCurrency",    cost1: 500 },
 ];

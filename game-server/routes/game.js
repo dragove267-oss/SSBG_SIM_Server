@@ -78,7 +78,7 @@ function isResetDoneToday(userId) {
   return false;
 }
 
-// ✅ userId 값을 studentId로도 포함해서 반환 (블루프린트 호환)
+//  userId 값을 studentId로도 포함해서 반환 (블루프린트 호환)
 function userWithStudentId(user) {
   return { ...user, studentId: user.userId };
 }
@@ -158,7 +158,7 @@ router.post("/login", async (req, res) => {
 
     res.json({
       success: true,
-      // ✅ studentId 포함 (블루프린트 호환)
+      //studentId 포함 (블루프린트 호환)
       user: userWithStudentId(user),
       Data: {
         studentId:        user.userId,
@@ -312,7 +312,7 @@ router.post("/daily-reset", async (req, res) => {
 
     db.prepare("INSERT INTO daily_reset_log (userId, resetAt) VALUES (?, ?)").run(userId, getServerTime().toISOString());
 
-    // ✅ 꿈상점 생성
+    // 꿈상점 생성
     const dreamShop = generateDreamShop(userId);
 
     const user = userWithStudentId(result.user);
@@ -539,7 +539,7 @@ router.post("/admin/craft-definition", (req, res) => {
     const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
     if (!itemDef) return res.status(404).json({ error: "Item not found" });
 
-    // ✅ Consumable 타입만 등록 가능
+    //  Consumable 타입만 등록 가능
     if (itemDef.itemType !== "Consumable")
       return res.status(400).json({ error: "소모성(Consumable) 아이템만 레시피 등록 가능합니다." });
 
@@ -614,7 +614,7 @@ router.post("/admin/shop-definition", (req, res) => {
     const itemDef = db.prepare("SELECT * FROM item_definitions WHERE itemCode = ?").get(itemCode);
     if (!itemDef) return res.status(404).json({ error: "Item not found" });
 
-    // ✅ Consumable 타입만 등록 가능
+    //  Consumable 타입만 등록 가능
     if (itemDef.itemType !== "Consumable")
       return res.status(400).json({ error: "소모성(Consumable) 아이템만 상점 등록 가능합니다." });
 
@@ -647,7 +647,7 @@ router.delete("/admin/shop-definition/:shopId", (req, res) => {
 // 도감
 // ================================================================
 
-// ✅ 도감 전체 조회
+//  도감 전체 조회
 // item_definitions 전체 기준, user_inventory 보유 여부로 isUnlocked 판정
 router.get("/collection/:userId", (req, res) => {
   const { type } = req.query;
@@ -660,7 +660,7 @@ router.get("/collection/:userId", (req, res) => {
   }
 });
 
-// ✅ 해금된 itemCode 목록만 반환 (언리얼 아이템 테이블 비교용)
+//  해금된 itemCode 목록만 반환 (언리얼 아이템 테이블 비교용)
 // = 유저가 가방에 보유한 아이템 코드 목록
 router.get("/collection/:userId/unlocked", (req, res) => {
   const { type } = req.query;

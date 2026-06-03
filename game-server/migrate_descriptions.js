@@ -12,8 +12,8 @@ const updates = [
   { itemCode: "004", desc: "꿈상점 등장 아이템 +2 or +3" },
   { itemCode: "005", desc: "꿈상점 등장 아이템 +3" },
   { itemCode: "006", desc: "꿈상점 구매 횟수 +1" },
-  { itemCode: "007", desc: "꿈상점 아이템 1가지 최소등급 중급" },
-  { itemCode: "008", desc: "꿈상점 구매 횟수 +2" },
+  { itemCode: "007", desc: "꿈상점 구매 횟수 +2" },
+  { itemCode: "008", desc: "꿈상점 아이템 1가지 최소등급 중급" },
   { itemCode: "009", desc: "꿈상점 아이템 2가지 최소등급 중급" },
   { itemCode: "010", desc: "꿈상점 아이템 1가지 최소등급 상급" },
   // 모자
