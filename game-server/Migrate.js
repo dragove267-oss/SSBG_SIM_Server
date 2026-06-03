@@ -179,8 +179,8 @@ db.exec(`
 
 const craftItems = [
   { craftId: "CRAFT_001", itemCode: "006", currencyType1: "extraCurrency",    cost1: 100 },
-  { craftId: "CRAFT_003", itemCode: "007", currencyType1: "extraCurrency",    cost1: 300 },
-  { craftId: "CRAFT_002", itemCode: "008", currencyType1: "academicCurrency", cost1: 200 },
+  { craftId: "CRAFT_002", itemCode: "007", currencyType1: "extraCurrency",    cost1: 300 },
+  { craftId: "CRAFT_003", itemCode: "008", currencyType1: "academicCurrency", cost1: 200 },
   { craftId: "CRAFT_004", itemCode: "009", currencyType1: "academicCurrency", cost1: 400 },
   { craftId: "CRAFT_005", itemCode: "010", currencyType1: "extraCurrency",    cost1: 500 },
 ];
