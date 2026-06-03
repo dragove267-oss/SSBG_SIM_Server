@@ -84,22 +84,22 @@ console.log("[Migration] 기본 아이템 등록 완료");
 // ================================================================
 const consumables = [
   // 상점 소모품
-  { itemCode: "001", name: "아이템 +1 (소)",      effectType: "shop_add_item",   value: 1 },
-  { itemCode: "002", name: "아이템 +1~2 (중)",    effectType: "shop_add_item",   value: 2 },
-  { itemCode: "003", name: "아이템 +2 (대)",      effectType: "shop_add_item",   value: 3 },
-  { itemCode: "004", name: "아이템 +2~3 (특)",    effectType: "shop_add_item",   value: 4 },
-  { itemCode: "005", name: "아이템 +3 (최)",      effectType: "shop_add_item",   value: 5 },
+  { itemCode: "001", name: "공책",       description: "꿈상점 등장 아이템 +1",          effectType: "shop_add_item",   value: 1 },
+  { itemCode: "002", name: "교과서",     description: "꿈상점 등장 아이템 +1 or +2",    effectType: "shop_add_item",   value: 2 },
+  { itemCode: "003", name: "은색 책",    description: "꿈상점 등장 아이템 +2",          effectType: "shop_add_item",   value: 3 },
+  { itemCode: "004", name: "금색 책",    description: "꿈상점 등장 아이템 +2 or +3",    effectType: "shop_add_item",   value: 4 },
+  { itemCode: "005", name: "백과사전",   description: "꿈상점 등장 아이템 +3",          effectType: "shop_add_item",   value: 5 },
   // 조합 소모품
-  { itemCode: "006", name: "구매 +1",             effectType: "shop_add_buy",    value: 1 },
-  { itemCode: "007", name: "구매 +2",             effectType: "shop_add_buy",    value: 2 },
-  { itemCode: "008", name: "중급 확정 1종",        effectType: "shop_grade_mid",  value: 1 },
-  { itemCode: "009", name: "중급 확정 2종",        effectType: "shop_grade_mid",  value: 2 },
-  { itemCode: "010", name: "상급 확정 1종",        effectType: "shop_grade_high", value: 1 },
+  { itemCode: "006", name: "안경",       description: "꿈상점 구매 횟수 +1",            effectType: "shop_add_buy",    value: 1 },
+  { itemCode: "007", name: "선글라스",   description: "꿈상점 구매 횟수 +2",            effectType: "shop_add_buy",    value: 2 },
+  { itemCode: "008", name: "나무 연필",   description: "꿈상점 아이템 1가지 최소 중급",  effectType: "shop_grade_mid",  value: 1 },
+  { itemCode: "009", name: "은색 연필",   description: "꿈상점 아이템 2가지 최소 중급",  effectType: "shop_grade_mid",  value: 2 },
+  { itemCode: "010", name: "금색 연필",   description: "꿈상점 아이템 1가지 최소 상급",  effectType: "shop_grade_high", value: 1 },
 ];
 
 const insertConsumable = db.prepare(`
-  INSERT OR IGNORE INTO item_definitions (itemCode, name, itemType, grade)
-  VALUES (?, ?, 'Consumable', 'basic')
+  INSERT OR IGNORE INTO item_definitions (itemCode, name, description, itemType, grade)
+  VALUES (?, ?, ?, 'Consumable', 'basic')
 `);
 const insertEffect = db.prepare(`
   INSERT OR IGNORE INTO consumable_effects (itemCode, effectType, value)
@@ -107,7 +107,7 @@ const insertEffect = db.prepare(`
 `);
 
 for (const c of consumables) {
-  insertConsumable.run(c.itemCode, c.name);
+  insertConsumable.run(c.itemCode, c.name, c.description);
   insertEffect.run(c.itemCode, c.effectType, c.value);
 }
 console.log("[Migration] 소모품 아이템 + 효과 등록 완료");
