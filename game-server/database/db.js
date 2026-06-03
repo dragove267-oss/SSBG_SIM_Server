@@ -44,12 +44,12 @@ db.exec(`
   )
 `);
 
-try {
-  db.exec("ALTER TABLE school_snapshots ADD COLUMN lateCount INTEGER DEFAULT 0");
-} catch (e) {}
-try {
-  db.exec("ALTER TABLE school_snapshots ADD COLUMN absentCount INTEGER DEFAULT 0");
-} catch (e) {}
+// 기존 DB에 lateCount/absentCount 컬럼 없을 경우 자동 추가
+try { db.exec("ALTER TABLE school_snapshots ADD COLUMN lateCount INTEGER DEFAULT 0"); } catch (e) {}
+try { db.exec("ALTER TABLE school_snapshots ADD COLUMN absentCount INTEGER DEFAULT 0"); } catch (e) {}
+
+// 기존 DB에 lastIdleCollect 없을 경우 자동 추가
+try { db.exec("ALTER TABLE users ADD COLUMN lastIdleCollect TEXT DEFAULT (datetime('now'))"); } catch (e) {}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS daily_play_log (
@@ -272,7 +272,7 @@ db.exec(`
 `);
 
 // ================================================================
-// 서버 설정 테이블 (시간 오프셋 등)
+// 서버 설정 테이블
 // ================================================================
 
 db.exec(`
@@ -285,10 +285,12 @@ db.prepare(`INSERT OR IGNORE INTO server_config (key, value) VALUES ('time_offse
 
 // ================================================================
 // Self-Healing Seeder
+// 멀티 재화 조합 레시피 반영 여부로 시딩 완료 판단
 // ================================================================
 try {
   const seedDone = db.prepare("SELECT COUNT(*) as count FROM item_definitions WHERE itemCode = '001' AND name = '공책'").get().count > 0
     && (db.prepare("SELECT cost2 FROM craft_definitions WHERE craftId = 'CRAFT_001'").get()?.cost2 || 0) > 0;
+
   if (!seedDone) {
     console.log("[DB] Seeding database...");
 
@@ -318,18 +320,21 @@ try {
       VALUES (?, ?, ?, ?, ?, ?)
     `);
 
-    // 소모품 (0xx)
+    // 소모품 (0xx) - 그룹별 정렬
+    // [책 그룹] 꿈상점 등장 아이템 수 증가 (001~005)
     const consumables = [
-      { itemCode: "001", name: "공책",       desc: "꿈상점 등장 아이템 +1",          effect: "shop_add_item",   val: 1 },
-      { itemCode: "002", name: "교과서",     desc: "꿈상점 등장 아이템 +1 or +2",    effect: "shop_add_item",   val: 2 },
-      { itemCode: "003", name: "은색 책",    desc: "꿈상점 등장 아이템 +2",          effect: "shop_add_item",   val: 3 },
-      { itemCode: "004", name: "금색 책",    desc: "꿈상점 등장 아이템 +2 or +3",    effect: "shop_add_item",   val: 4 },
-      { itemCode: "005", name: "백과사전",   desc: "꿈상점 등장 아이템 +3",          effect: "shop_add_item",   val: 5 },
-      { itemCode: "006", name: "안경",       desc: "꿈상점 구매 횟수 +1",            effect: "shop_add_buy",    val: 1 },
-      { itemCode: "007", name: "나무 연필",   desc: "꿈상점 아이템 1가지 최소 중급",  effect: "shop_grade_mid",  val: 1 },
-      { itemCode: "008", name: "선글라스",   desc: "꿈상점 구매 횟수 +2",            effect: "shop_add_buy",    val: 2 },
-      { itemCode: "009", name: "은색 연필",   desc: "꿈상점 아이템 2가지 최소 중급",  effect: "shop_grade_mid",  val: 2 },
-      { itemCode: "010", name: "금색 연필",   desc: "꿈상점 아이템 1가지 최소 상급",  effect: "shop_grade_high", val: 1 },
+      { itemCode: "001", name: "공책",      desc: "꿈상점 등장 아이템 +1",          effect: "shop_add_item",   val: 1 },
+      { itemCode: "002", name: "교과서",    desc: "꿈상점 등장 아이템 +1 or +2",    effect: "shop_add_item",   val: 2 },
+      { itemCode: "003", name: "은색 책",   desc: "꿈상점 등장 아이템 +2",          effect: "shop_add_item",   val: 3 },
+      { itemCode: "004", name: "금색 책",   desc: "꿈상점 등장 아이템 +2 or +3",    effect: "shop_add_item",   val: 4 },
+      { itemCode: "005", name: "백과사전",  desc: "꿈상점 등장 아이템 +3",          effect: "shop_add_item",   val: 5 },
+      // [안경 그룹] 꿈상점 구매 횟수 증가 (006, 008)
+      { itemCode: "006", name: "안경",      desc: "꿈상점 구매 횟수 +1",            effect: "shop_add_buy",    val: 1 },
+      { itemCode: "008", name: "선글라스",  desc: "꿈상점 구매 횟수 +2",            effect: "shop_add_buy",    val: 2 },
+      // [연필 그룹] 꿈상점 등급 확정 (007, 009, 010)
+      { itemCode: "007", name: "나무 연필", desc: "꿈상점 아이템 1가지 최소 중급",  effect: "shop_grade_mid",  val: 1 },
+      { itemCode: "009", name: "은색 연필", desc: "꿈상점 아이템 2가지 최소 중급",  effect: "shop_grade_mid",  val: 2 },
+      { itemCode: "010", name: "금색 연필", desc: "꿈상점 아이템 1가지 최소 상급",  effect: "shop_grade_high", val: 1 },
     ];
     for (const c of consumables) {
       insertItem.run(c.itemCode, c.name, c.desc, "Consumable", "basic", null);
@@ -404,7 +409,7 @@ try {
       db.prepare("INSERT INTO item_definition_options (itemCode, optionCode, value) VALUES (?, ?, 2.0)").run(f.itemCode, f.optionCode);
     }
 
-    // 상점 등록
+    // 상점 등록 (책 5종 - EXP 소모)
     const shopDefs = [
       { shopId: "SHOP_001", itemCode: "001", price: 100 },
       { shopId: "SHOP_002", itemCode: "002", price: 200 },
@@ -418,41 +423,11 @@ try {
 
     // 제작 레시피 등록 (멀티 재화 조합)
     const craftDefs = [
-      {
-        craftId: "CRAFT_001",
-        itemCode: "006",
-        currency1: "academicCurrency", cost1: 100,
-        currency2: "extraCurrency",    cost2: 100,
-        currency3: "idleCurrency",     cost3: 100
-      },
-      {
-        craftId: "CRAFT_002",
-        itemCode: "007",
-        currency1: "academicCurrency", cost1: 300,
-        currency2: "extraCurrency",    cost2: 200,
-        currency3: "idleCurrency",     cost3: 200
-      },
-      {
-        craftId: "CRAFT_003",
-        itemCode: "008",
-        currency1: "academicCurrency", cost1: 300,
-        currency2: "extraCurrency",    cost2: 300,
-        currency3: "idleCurrency",     cost3: 300
-      },
-      {
-        craftId: "CRAFT_004",
-        itemCode: "009",
-        currency1: "academicCurrency", cost1: 200,
-        currency2: "extraCurrency",    cost2: 300,
-        currency3: "idleCurrency",     cost3: 200
-      },
-      {
-        craftId: "CRAFT_005",
-        itemCode: "010",
-        currency1: "academicCurrency", cost1: 200,
-        currency2: "extraCurrency",    cost2: 200,
-        currency3: "idleCurrency",     cost3: 300
-      }
+      { craftId: "CRAFT_001", itemCode: "006", currency1: "academicCurrency", cost1: 100, currency2: "extraCurrency", cost2: 100, currency3: "idleCurrency", cost3: 100 },
+      { craftId: "CRAFT_002", itemCode: "007", currency1: "academicCurrency", cost1: 300, currency2: "extraCurrency", cost2: 200, currency3: "idleCurrency", cost3: 200 },
+      { craftId: "CRAFT_003", itemCode: "008", currency1: "academicCurrency", cost1: 300, currency2: "extraCurrency", cost2: 300, currency3: "idleCurrency", cost3: 300 },
+      { craftId: "CRAFT_004", itemCode: "009", currency1: "academicCurrency", cost1: 200, currency2: "extraCurrency", cost2: 300, currency3: "idleCurrency", cost3: 200 },
+      { craftId: "CRAFT_005", itemCode: "010", currency1: "academicCurrency", cost1: 200, currency2: "extraCurrency", cost2: 200, currency3: "idleCurrency", cost3: 300 },
     ];
     for (const c of craftDefs) {
       db.prepare(`
