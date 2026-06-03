@@ -326,8 +326,8 @@ try {
       { itemCode: "004", name: "금색 책",    desc: "꿈상점 등장 아이템 +2 or +3",    effect: "shop_add_item",   val: 4 },
       { itemCode: "005", name: "백과사전",   desc: "꿈상점 등장 아이템 +3",          effect: "shop_add_item",   val: 5 },
       { itemCode: "006", name: "안경",       desc: "꿈상점 구매 횟수 +1",            effect: "shop_add_buy",    val: 1 },
-      { itemCode: "008", name: "나무 연필",   desc: "꿈상점 아이템 1가지 최소 중급",  effect: "shop_grade_mid",  val: 1 },
       { itemCode: "007", name: "선글라스",   desc: "꿈상점 구매 횟수 +2",            effect: "shop_add_buy",    val: 2 },
+      { itemCode: "008", name: "나무 연필",   desc: "꿈상점 아이템 1가지 최소 중급",  effect: "shop_grade_mid",  val: 1 },
       { itemCode: "009", name: "은색 연필",   desc: "꿈상점 아이템 2가지 최소 중급",  effect: "shop_grade_mid",  val: 2 },
       { itemCode: "010", name: "금색 연필",   desc: "꿈상점 아이템 1가지 최소 상급",  effect: "shop_grade_high", val: 1 },
     ];
