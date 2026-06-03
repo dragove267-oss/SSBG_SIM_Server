@@ -193,19 +193,19 @@ function applySchoolReward(userId, newAttendance, newAssignment, newLate = 0, ne
   `).run(userId, newAttendance, newAssignment, newLate, newAbsent);
 
   if (deltaAttendance > 0) {
-    const detail = `출석 ${deltaAttendance}회 → Extra +${finalExtra} / EXP +${finalExp} 획득!`;
+    const detail = `출석x${deltaAttendance} ETR+${finalExtra} EXP+${finalExp}`;
     saveAcademicLog(userId, "attendance", detail, finalExtra, finalExp);
   }
   if (deltaLate > 0) {
-    const detail = `지각 ${deltaLate}회 → Extra +${deltaLate * 50} / EXP +${deltaLate * 100} 획득!`;
+    const detail = `지각x${deltaLate} ETR+${deltaLate * 50} EXP+${deltaLate * 100}`;
     saveAcademicLog(userId, "attendance", detail, deltaLate * 50, deltaLate * 100);
   }
   if (deltaAbsent > 0) {
-    const detail = `결석 ${deltaAbsent}회 → EXP +${deltaAbsent * 100} 획득!`;
+    const detail = `결석x${deltaAbsent} EXP+${deltaAbsent * 100}`;
     saveAcademicLog(userId, "attendance", detail, 0, deltaAbsent * 100);
   }
   if (deltaAssignment > 0) {
-    const detail = `과제 ${deltaAssignment}회 제출 → Academic +${finalAcademic} / EXP +${finalExp} 획득!`;
+    const detail = `과제x${deltaAssignment} ACD+${finalAcademic} EXP+${finalExp}`;
     saveAcademicLog(userId, "assignment", detail, 0, finalExp);
   }
 
