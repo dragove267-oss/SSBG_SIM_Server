@@ -427,14 +427,14 @@ try {
       },
       {
         craftId: "CRAFT_002",
-        itemCode: "007",
+        itemCode: "008",
         currency1: "academicCurrency", cost1: 300,
         currency2: "extraCurrency",    cost2: 200,
         currency3: "idleCurrency",     cost3: 200
       },
       {
         craftId: "CRAFT_003",
-        itemCode: "008",
+        itemCode: "007",
         currency1: "academicCurrency", cost1: 300,
         currency2: "extraCurrency",    cost2: 300,
         currency3: "idleCurrency",     cost3: 300
